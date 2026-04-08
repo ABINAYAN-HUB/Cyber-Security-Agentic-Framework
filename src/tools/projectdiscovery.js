@@ -11,7 +11,7 @@ function ensureOutputDir() {
 }
 
 function checkTool(name) {
-  try { execSync(`command -v ${name}`, { stdio: 'ignore' }); return true; } catch {
+  try { execSync(`command -v ${name}`, { stdio: 'ignore', env: getPDEnv() }); return true; } catch {
     return false;
   }
 }
@@ -19,6 +19,13 @@ function checkTool(name) {
 // Build environment with PDCP API key for all PD tools
 function getPDEnv() {
   const env = { ...process.env };
+  const home = process.env.HOME || '/home/blackhat';
+  if (env.PATH && !env.PATH.includes(`${home}/go/bin`)) {
+    env.PATH = `${home}/go/bin:${env.PATH}`;
+  } else if (!env.PATH) {
+    env.PATH = `${home}/go/bin`;
+  }
+  
   if (config.pdcpApiKey) {
     env.PDCP_API_KEY = config.pdcpApiKey;
     env.NUCLEI_CLOUD_API = config.pdcpApiKey; // nuclei cloud auth

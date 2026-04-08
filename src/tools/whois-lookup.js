@@ -27,17 +27,13 @@ export async function execute(args) {
       data: result
     };
   } catch (err) {
-    // Fallback to web API
+    // Fallback to system whois
     try {
-      const response = await fetch(`https://whois.freeaitools.org/api/v1/whois?domain=${encodeURIComponent(target)}`, {
-        signal: AbortSignal.timeout(15000)
-      });
-      if (response.ok) {
-        const data = await response.json();
-        return { success: true, target, data, source: 'freeaitools' };
-      }
-    } catch {}
-
-    return { success: false, error: `WHOIS lookup failed: ${err.message}` };
+      const { execSync } = await import('child_process');
+      const out = execSync(`whois "${target.replace(/"/g, '') }"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 15000 });
+      return { success: true, target, data: out, source: 'system_whois' };
+    } catch (fallbackErr) {
+      return { success: false, error: `WHOIS lookup failed (both library and system command): ${err.message || 'unknown error'} / ${fallbackErr.message || 'unknown error'}` };
+    }
   }
 }

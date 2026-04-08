@@ -17,9 +17,28 @@ export const definition = {
 export async function execute(args) {
   const { ip } = args;
 
+  let targetIp = ip;
+  
   try {
+    // Optional: resolve hostname to IP to prevent API fetch failures
+    if (!/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(ip) && !ip.includes(':')) {
+      const { promisify } = await import('util');
+      const { resolve4, resolve6 } = await import('dns');
+      try {
+        const ips = await promisify(resolve4)(ip);
+        if (ips.length > 0) targetIp = ips[0];
+      } catch {
+        try {
+          const ips = await promisify(resolve6)(ip);
+          if (ips.length > 0) targetIp = ips[0];
+        } catch {
+           return { success: false, error: `Failed to resolve hostname: ${ip}` };
+        }
+      }
+    }
+
     // Primary: ip-api.com (free, no key needed)
-    const response = await fetch(`http://ip-api.com/json/${ip}?fields=status,message,continent,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,asname,reverse,mobile,proxy,hosting,query`, {
+    const response = await fetch(`http://ip-api.com/json/${targetIp}?fields=status,message,continent,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,asname,reverse,mobile,proxy,hosting,query`, {
       signal: AbortSignal.timeout(10000)
     });
 
@@ -30,7 +49,7 @@ export async function execute(args) {
       if (data.message === 'private range') {
         return {
           success: true,
-          ip: ip,
+          ip: targetIp,
           is_private: true,
           message: 'Internal/Private network address space (RFC 1918)'
         };
@@ -41,12 +60,13 @@ export async function execute(args) {
     // Additional threat intel from ipinfo.io
     let threatInfo = null;
     try {
-      const r2 = await fetch(`https://ipinfo.io/${ip}/json`, { signal: AbortSignal.timeout(8000) });
+      const r2 = await fetch(`https://ipinfo.io/${targetIp}/json`, { signal: AbortSignal.timeout(8000) });
       if (r2.ok) threatInfo = await r2.json();
     } catch {}
 
     return {
       success: true,
+      query: ip,
       ip: data.query,
       location: {
         continent: data.continent,
@@ -79,6 +99,9 @@ export async function execute(args) {
       } : null
     };
   } catch (err) {
-    return { success: false, error: err.message };
+    if (err.cause && err.cause.code === 'ENOTFOUND') {
+      return { success: false, error: `Network resolution failed for ${targetIp}. Ensure it is a valid IP address.` };
+    }
+    return { success: false, error: `Geolocation API lookup failed: ${err.message}` };
   }
 }
