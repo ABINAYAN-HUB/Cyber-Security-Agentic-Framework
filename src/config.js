@@ -55,7 +55,7 @@ const config = {
   temperature: 0.4,
   topP: 0.9,
   topK: 20,
-  maxTokens: 32768,
+  maxTokens: 16384,
   presencePenalty: 0,
   repetitionPenalty: 1,
 
