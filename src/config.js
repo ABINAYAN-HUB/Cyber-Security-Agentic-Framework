@@ -52,10 +52,10 @@ const config = {
   model: process.env.NVIDIA_MODEL || 'z-ai/glm5',
 
   // ═══ Generation Settings ═══
-  temperature: 0.6,
+  temperature: 0.4,
   topP: 0.9,
   topK: 20,
-  maxTokens: 16384,
+  maxTokens: 32768,
   presencePenalty: 0,
   repetitionPenalty: 1,
 
@@ -109,7 +109,7 @@ const config = {
   ],
 
   // ═══ History ═══
-  maxHistoryMessages: 40,
+  maxHistoryMessages: 50,
 
   // ═══ Verbose Mode ═══
   verbose: false,

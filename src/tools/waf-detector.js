@@ -79,17 +79,21 @@ export async function execute(args) {
   try {
     const targetUrl = url.startsWith('http') ? url : `https://${url}`;
 
-    const { Agent } = await import('undici');
-    const dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+    let dispatcher;
+    try {
+      const undici = await import('undici');
+      dispatcher = new undici.Agent({ connect: { rejectUnauthorized: false } });
+    } catch {}
 
     // 1. Normal Request
     let normalHeaders = {};
     try {
-      const res1 = await fetch(targetUrl, {
+      const fetchOpts = {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
         signal: AbortSignal.timeout(10000),
-        dispatcher
-      });
+      };
+      if (dispatcher) fetchOpts.dispatcher = dispatcher;
+      const res1 = await fetch(targetUrl, fetchOpts);
       res1.headers.forEach((v, k) => normalHeaders[k.toLowerCase()] = v);
     } catch {}
 

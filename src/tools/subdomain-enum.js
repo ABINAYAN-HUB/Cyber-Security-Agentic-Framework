@@ -86,7 +86,9 @@ export async function execute(args) {
       });
       if (response.ok) {
         const text = await response.text();
-        if (!text.includes('error')) {
+        if (text.includes('error') || text.includes('API count exceeded')) {
+          // Rate-limited — skip silently, subfinder_enum handles this better
+        } else {
           for (const line of text.split('\n')) {
             const [subdomain] = line.split(',');
             if (subdomain && subdomain.endsWith(domain)) {

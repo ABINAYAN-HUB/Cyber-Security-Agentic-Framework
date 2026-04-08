@@ -36,18 +36,20 @@ export async function execute(args) {
 
   try {
     const targetUrl = url.startsWith('http') ? url : `https://${url}`;
-    const { Agent } = await import('undici');
-    const dispatcher = new Agent({
-      connect: { rejectUnauthorized: false }
-    });
+    let dispatcher;
+    try {
+      const undici = await import('undici');
+      dispatcher = new undici.Agent({ connect: { rejectUnauthorized: false } });
+    } catch {}
 
-    const response = await fetch(targetUrl, {
+    const fetchOpts = {
       method: 'HEAD',
       headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36' },
       redirect: 'follow',
       signal: AbortSignal.timeout(15000),
-      dispatcher
-    });
+    };
+    if (dispatcher) fetchOpts.dispatcher = dispatcher;
+    const response = await fetch(targetUrl, fetchOpts);
 
     const headers = {};
     response.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });

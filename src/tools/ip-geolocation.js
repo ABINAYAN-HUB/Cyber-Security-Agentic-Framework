@@ -37,42 +37,85 @@ export async function execute(args) {
       }
     }
 
-    // Primary: ip-api.com (free, no key needed)
-    const response = await fetch(`http://ip-api.com/json/${targetIp}?fields=status,message,continent,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,asname,reverse,mobile,proxy,hosting,query`, {
-      signal: AbortSignal.timeout(10000)
-    });
-
-    if (!response.ok) throw new Error(`API error: ${response.status}`);
-    
-    const data = await response.json();
-    if (data.status === 'fail') {
-      if (data.message === 'private range') {
-        return {
-          success: true,
-          ip: targetIp,
-          is_private: true,
-          message: 'Internal/Private network address space (RFC 1918)'
+    // Primary: ipinfo.io (HTTPS, reliable from Node fetch)
+    let data = null;
+    try {
+      const response = await fetch(`https://ipinfo.io/${targetIp}/json`, {
+        signal: AbortSignal.timeout(10000)
+      });
+      if (response.ok) {
+        const info = await response.json();
+        if (info.bogon) {
+          return { success: true, ip: targetIp, is_private: true, message: 'Bogon/Private IP address' };
+        }
+        const [lat, lon] = (info.loc || '0,0').split(',').map(Number);
+        data = {
+          query: targetIp,
+          country: info.country,
+          region: info.region,
+          city: info.city,
+          zip: info.postal,
+          lat, lon,
+          timezone: info.timezone,
+          isp: info.org,
+          org: info.org,
+          hostname: info.hostname,
+          anycast: info.anycast,
         };
       }
-      return { success: false, error: data.message || 'Lookup failed' };
+    } catch {}
+
+    // Fallback: ip-api.com (HTTP, may fail on some networks)
+    if (!data) {
+      try {
+        const response = await fetch(`http://ip-api.com/json/${targetIp}?fields=status,message,continent,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,asname,reverse,mobile,proxy,hosting,query`, {
+          signal: AbortSignal.timeout(8000)
+        });
+        if (response.ok) {
+          const apiData = await response.json();
+          if (apiData.status === 'fail') {
+            if (apiData.message === 'private range') {
+              return { success: true, ip: targetIp, is_private: true, message: 'Internal/Private network address space (RFC 1918)' };
+            }
+            return { success: false, error: apiData.message || 'Lookup failed' };
+          }
+          data = {
+            query: apiData.query,
+            continent: apiData.continent,
+            country: apiData.country,
+            countryCode: apiData.countryCode,
+            region: apiData.regionName,
+            city: apiData.city,
+            zip: apiData.zip,
+            lat: apiData.lat,
+            lon: apiData.lon,
+            timezone: apiData.timezone,
+            isp: apiData.isp,
+            org: apiData.org,
+            asn: apiData.as,
+            as_name: apiData.asname,
+            reverse: apiData.reverse,
+            mobile: apiData.mobile,
+            proxy: apiData.proxy,
+            hosting: apiData.hosting,
+          };
+        }
+      } catch {}
     }
 
-    // Additional threat intel from ipinfo.io
-    let threatInfo = null;
-    try {
-      const r2 = await fetch(`https://ipinfo.io/${targetIp}/json`, { signal: AbortSignal.timeout(8000) });
-      if (r2.ok) threatInfo = await r2.json();
-    } catch {}
+    if (!data) {
+      return { success: false, error: `All geolocation APIs failed for ${targetIp}. Network may be restricted.` };
+    }
 
     return {
       success: true,
       query: ip,
-      ip: data.query,
+      ip: data.query || targetIp,
       location: {
-        continent: data.continent,
+        continent: data.continent || null,
         country: data.country,
-        country_code: data.countryCode,
-        region: data.regionName,
+        country_code: data.countryCode || null,
+        region: data.region,
         city: data.city,
         zip: data.zip,
         coordinates: { lat: data.lat, lon: data.lon },
@@ -81,27 +124,18 @@ export async function execute(args) {
       network: {
         isp: data.isp,
         organization: data.org,
-        asn: data.as,
-        as_name: data.asname,
-        reverse_dns: data.reverse
+        asn: data.asn || null,
+        as_name: data.as_name || null,
+        reverse_dns: data.reverse || data.hostname || null
       },
       flags: {
-        is_mobile: data.mobile,
-        is_proxy: data.proxy,
-        is_hosting: data.hosting
-      },
-      additional: threatInfo ? {
-        hostname: threatInfo.hostname,
-        bogon: threatInfo.bogon,
-        anycast: threatInfo.anycast,
-        company: threatInfo.company,
-        privacy: threatInfo.privacy
-      } : null
+        is_mobile: data.mobile || false,
+        is_proxy: data.proxy || false,
+        is_hosting: data.hosting || false,
+        is_anycast: data.anycast || false
+      }
     };
   } catch (err) {
-    if (err.cause && err.cause.code === 'ENOTFOUND') {
-      return { success: false, error: `Network resolution failed for ${targetIp}. Ensure it is a valid IP address.` };
-    }
-    return { success: false, error: `Geolocation API lookup failed: ${err.message}` };
+    return { success: false, error: `Geolocation lookup failed: ${err.message}` };
   }
 }

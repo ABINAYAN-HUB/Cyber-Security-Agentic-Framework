@@ -103,6 +103,14 @@ async function _scanPort(host, port, timeout, grabBanner) {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let banner = '';
+    let resolved = false;
+    
+    const finish = (result) => {
+      if (resolved) return;
+      resolved = true;
+      socket.destroy();
+      resolve(result);
+    };
     
     socket.setTimeout(timeout);
     
@@ -119,19 +127,30 @@ async function _scanPort(host, port, timeout, grabBanner) {
           socket.write('HEAD / HTTP/1.0\r\nHost: target\r\n\r\n');
         }
         
-        setTimeout(() => {
+        // Resolve on close/end (connection dropped before timer)
+        socket.on('end', () => {
           result.banner = banner.trim() || null;
-          socket.destroy();
-          resolve(result);
+          finish(result);
+        });
+        
+        const bannerTimer = setTimeout(() => {
+          result.banner = banner.trim() || null;
+          finish(result);
         }, Math.min(timeout, 2000));
+        
+        // Clear timer if socket ends early
+        socket.on('close', () => {
+          clearTimeout(bannerTimer);
+          result.banner = banner.trim() || null;
+          finish(result);
+        });
       } else {
-        socket.destroy();
-        resolve(result);
+        finish(result);
       }
     });
 
-    socket.on('timeout', () => { socket.destroy(); resolve({ port, open: false }); });
-    socket.on('error', () => { socket.destroy(); resolve({ port, open: false }); });
+    socket.on('timeout', () => { finish({ port, open: false }); });
+    socket.on('error', () => { finish({ port, open: false }); });
 
     socket.connect(port, host);
   });

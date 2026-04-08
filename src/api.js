@@ -1,13 +1,7 @@
 import config from './config.js';
 import { EventEmitter } from 'events';
-import { Agent as HttpsAgent } from 'https';
-import { Agent as HttpAgent } from 'http';
 
 export const apiEvents = new EventEmitter();
-
-// ═══ Connection pool — reuse TCP/TLS connections across requests ═══
-const httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 5, keepAliveMsecs: 30000 });
-const httpAgent = new HttpAgent({ keepAlive: true, maxSockets: 5 });
 
 // ═══ Dynamic header builder — always uses current config values ═══
 function getHeaders() {
@@ -195,7 +189,6 @@ export async function* streamChat(messages, tools, systemPrompt) {
           }
         }
 
-        const finishReason = chunk.choices?.[0]?.finish_reason;
       }
     }
   } catch (err) {

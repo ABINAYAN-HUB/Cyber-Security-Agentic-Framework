@@ -37,11 +37,14 @@ export async function execute(args, cwd) {
     let shell = isWindows ? 'powershell.exe' : '/bin/bash';
 
     // Set up environment to discourage TTY assumptions for headless execution
+    const home = process.env.HOME || '/home/blackhat';
+    const currentPath = process.env.PATH || '';
     const env = { 
       ...process.env, 
       TERM: 'dumb',           // Prevents tools from trying to use advanced terminal features
       DEBIAN_FRONTEND: 'noninteractive', // Prevents apt/dpkg from prompting
-      PAGER: 'cat'            // Prevents tools from halting output to page
+      PAGER: 'cat',           // Prevents tools from halting output to page
+      PATH: currentPath.includes(`${home}/go/bin`) ? currentPath : `${home}/go/bin:${currentPath}`,
     };
     
     // Use spawn with detached stdin to prevent ANY tools from requesting a TTY and crashing on ioctl errors

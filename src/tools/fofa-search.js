@@ -41,7 +41,7 @@ export async function execute(args) {
     
     if (!response.ok) {
       const errText = await response.text();
-      return { success: false, error: `FOFA API error (${response.status}): ${errText}` };
+      return { success: false, error: `FOFA API error (${response.status}): ${errText.replace(apiKey, '***')}` };
     }
 
     const data = await response.json();

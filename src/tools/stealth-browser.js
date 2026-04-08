@@ -105,6 +105,10 @@ export async function execute(args) {
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
     });
 
+    // Capture console messages (must be BEFORE navigation to catch all messages)
+    const consoleMsgs = [];
+    page.on('console', msg => consoleMsgs.push({ type: msg.type(), text: msg.text() }));
+
     // Navigate
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
     
@@ -181,9 +185,7 @@ export async function execute(args) {
     const cookies = await page.cookies();
     result.cookies = cookies.slice(0, 20).map(c => ({ name: c.name, domain: c.domain, secure: c.secure, httpOnly: c.httpOnly }));
 
-    // Get console messages
-    const consoleMsgs = [];
-    page.on('console', msg => consoleMsgs.push({ type: msg.type(), text: msg.text() }));
+    // Console messages already captured (listener registered before navigation)
     result.console = consoleMsgs.slice(0, 10);
 
     return result;
