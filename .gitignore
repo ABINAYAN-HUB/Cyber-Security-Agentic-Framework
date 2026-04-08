@@ -1,0 +1,36 @@
+# ═══ Dependencies ═══
+node_modules/
+
+# ═══ Environment (SECRETS — NEVER COMMIT) ═══
+.env
+
+# ═══ Database ═══
+*.db
+*.db-shm
+*.db-wal
+openclaw-memory.db
+
+# ═══ Output ═══
+openclaw-output/
+jarvis-output/
+
+# ═══ Runtime ═══
+.subagents/
+*.log
+*.pid
+HEARTBEAT.md
+.openclaw-bot.pid
+
+# ═══ OS ═══
+.DS_Store
+Thumbs.db
+*~
+
+# ═══ IDE ═══
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ═══ Misc ═══
+.gemini/
