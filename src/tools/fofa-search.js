@@ -1,6 +1,7 @@
-// OpenClaw Cyber — FOFA Cyberspace Search Engine Tool
+// Jarvis Cyber — FOFA Cyberspace Search Engine Tool
 import config from '../config.js';
 import { memory } from '../memory.js';
+import { networkErrorMessage } from './network-utils.js';
 
 export const definition = {
   type: 'function',
@@ -47,7 +48,11 @@ export async function execute(args) {
     const data = await response.json();
     
     if (data.error) {
-      return { success: false, error: `FOFA error: ${data.errmsg || data.error}` };
+      let errorMsg = `FOFA error: ${data.errmsg || data.error}`;
+      if (errorMsg.includes('820031') || errorMsg.includes('F点余额不足')) {
+        errorMsg += ' (Insufficient FOFA F-Points. Check your subscription.)';
+      }
+      return { success: false, error: errorMsg };
     }
 
     const fieldList = fields.split(',').map(f => f.trim());
@@ -82,6 +87,6 @@ export async function execute(args) {
       note: results.length > 100 ? `Showing 100 of ${results.length} results. ${data.size} total matches in FOFA.` : undefined
     };
   } catch (err) {
-    return { success: false, error: err.message };
+    return { success: false, error: networkErrorMessage(err, 'FOFA search failed') };
   }
 }

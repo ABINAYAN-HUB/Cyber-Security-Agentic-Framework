@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Hash Identification & Cracking Tool
+// Jarvis Cyber — Hash Identification & Cracking Tool
 import { createHash } from 'crypto';
 
 export const definition = {
@@ -73,7 +73,7 @@ async function _attemptCrack(hash) {
   for (const api of apis) {
     try {
       const response = await fetch(api.url, {
-        headers: { 'User-Agent': 'OpenClaw-Cyber' },
+        headers: { 'User-Agent': 'Jarvis-Cyber' },
         signal: AbortSignal.timeout(10000)
       });
       if (!response.ok) continue;

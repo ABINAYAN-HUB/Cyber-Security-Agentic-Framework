@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Skills Manager
+// Jarvis Cyber — Skills Manager
 // Dynamically loads skill definitions from the skills/ directory
 import { existsSync, readdirSync, readFileSync, mkdirSync } from 'fs';
 import { join, basename } from 'path';

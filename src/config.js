@@ -1,10 +1,14 @@
-// OpenClaw Cyber — Configuration
+// Jarvis Cyber — Configuration
 // Powered by NVIDIA NIM API — Z-AI GLM5
 import dotenv from 'dotenv';
 import { join, dirname } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
+import dns from 'dns';
+
+// Force IPv4 resolution to prevent Node.js 'fetch failed' / ETIMEDOUT network outages
+try { dns.setDefaultResultOrder('ipv4first'); } catch (e) {}
 
 // ═══ Resolve package directory (where cli.js lives) ═══
 const __filename = fileURLToPath(import.meta.url);

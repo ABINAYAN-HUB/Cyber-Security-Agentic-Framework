@@ -1,4 +1,5 @@
-// read-url.js — Fetch a URL and convert it to Markdown
+// Jarvis Cyber — read-url.js — Fetch a URL and convert to Markdown
+import { networkErrorMessage } from './network-utils.js';
 export const definition = {
   type: 'function',
   function: {
@@ -66,6 +67,6 @@ export async function execute(args) {
       content: clean || '(no readable content found)' 
     };
   } catch (error) {
-    return { success: false, error: error.message };
+    return { success: false, error: networkErrorMessage(error, `Failed to read ${url}`) };
   }
 }

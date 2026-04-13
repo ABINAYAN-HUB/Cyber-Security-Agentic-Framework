@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Hash Generator Tool
+// Jarvis Cyber — Hash Generator Tool
 import { createHash, createHmac, randomBytes, scryptSync } from 'crypto';
 
 export const definition = {

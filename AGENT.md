@@ -1,12 +1,12 @@
-# OpenClaw Cyber — Project Context
+# Jarvis Cyber — Project Context
 
 ## Identity
-This is **OpenClaw Cyber v2.1**, an autonomous AI cybersecurity agent framework.
+This is **Jarvis Cyber v3.1**, an autonomous AI cybersecurity agent framework.
 
 ## Architecture
 - **Core**: Node.js ES Module agent with NVIDIA NIM API backend
 - **Interface**: CLI REPL, Telegram Bot, Background Daemon
-- **Memory**: SQLite persistent memory (openclaw-memory.db)
+- **Memory**: SQLite persistent memory (openclaw-memory.db (legacy name))
 - **Tools**: 42 built-in security tools + auto-detection of system tools
 - **Skills**: 15 cybersecurity skill modules (dynamic loading from skills/)
 - **Multi-Agent**: Subagent spawning for parallel operations
@@ -32,7 +32,7 @@ This is **OpenClaw Cyber v2.1**, an autonomous AI cybersecurity agent framework.
 
 ## Running
 ```bash
-openclaw              # Global CLI (npm install -g)
+jarvis              # Global CLI (npm install -g)
 node cli.js           # Interactive CLI
 node cli.js --telegram   # Telegram bot
 node cli.js --daemon     # Daemon + Telegram + Heartbeat

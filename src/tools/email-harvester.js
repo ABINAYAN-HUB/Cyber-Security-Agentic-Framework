@@ -1,4 +1,5 @@
-// OpenClaw Cyber — Email Harvester
+// Jarvis Cyber — Email Harvester
+import { networkErrorMessage } from './network-utils.js';
 export const definition = {
   type: 'function',
   function: {
@@ -59,9 +60,11 @@ export async function execute(args) {
     }
   }
 
-  // ─── Hunter.io Free API ───
+  // ─── Hunter.io API (only if key is configured) ───
+  const hunterApiKey = process.env.HUNTER_API_KEY || '';
+  if (hunterApiKey) {
   try {
-    const response = await fetch(`https://api.hunter.io/v2/domain-search?domain=${domain}&api_key=&limit=10`, {
+    const response = await fetch(`https://api.hunter.io/v2/domain-search?domain=${domain}&api_key=${encodeURIComponent(hunterApiKey)}&limit=10`, {
       signal: AbortSignal.timeout(10000)
     });
     if (response.ok) {
@@ -73,6 +76,7 @@ export async function execute(args) {
       }
     }
   } catch {}
+  } // end if hunterApiKey
 
   const sorted = [...emails].sort();
 

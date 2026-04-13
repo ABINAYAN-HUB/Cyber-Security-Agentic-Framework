@@ -1,4 +1,4 @@
-// OpenClaw Cyber — ProjectDiscovery Tools Integration
+// Jarvis Cyber — ProjectDiscovery Tools Integration
 // nuclei, subfinder, httpx, naabu, katana, dnsx, uncover
 import { execSync } from 'child_process';
 import config from '../config.js';
@@ -64,12 +64,18 @@ export async function executeNuclei(args) {
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
   const outFile = join(outDir, `nuclei-${Date.now()}.json`);
 
-  let cmd = `nuclei -u "${target}" -jsonl -o "${outFile}" -rate-limit ${rate_limit} -timeout ${Math.min(timeout, 300)} -silent -nc`;
+  let cmd = `timeout -k 15 ${timeout + 15} nuclei -u "${target}" -jsonl -o "${outFile}" -rate-limit ${rate_limit} -timeout ${Math.min(timeout, 300)} -silent -nc`;
   if (severity !== 'all') cmd += ` -severity ${severity}`;
   if (templates) cmd += ` -t ${templates}`;
   if (tags) cmd += ` -tags ${tags}`;
 
-  try { execSync(cmd, { timeout: (timeout + 30) * 1000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], env: getPDEnv() }); } catch {}
+  try { 
+    execSync(cmd, { timeout: (timeout + 30) * 1000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], env: getPDEnv() }); 
+  } catch (err) {
+    if (err.code === 'ETIMEDOUT' || err.message?.includes('ETIMEDOUT')) {
+      return { success: false, error: `nuclei timed out after ${timeout}s` };
+    }
+  }
 
   const results = [];
   if (existsSync(outFile)) {
@@ -115,7 +121,7 @@ export async function executeSubfinder(args) {
   const { domain, recursive = false, timeout = 60 } = args;
   if (!checkTool('subfinder')) return { success: false, error: 'subfinder not installed. Install: go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest' };
 
-  let cmd = `subfinder -d "${domain}" -silent -nc -timeout ${timeout}`;
+  let cmd = `timeout -k 15 ${timeout + 15} subfinder -d "${domain}" -silent -nc -timeout ${timeout}`;
   if (recursive) cmd += ' -recursive';
 
   try {
@@ -123,7 +129,12 @@ export async function executeSubfinder(args) {
     const subs = out.trim().split('\n').filter(Boolean);
     try { memory.init(); memory.storeScanResult('subdomain_enum', domain, 'subfinder', { services: subs, raw: out.slice(0, 10000) }); } catch {}
     return { success: true, domain, total: subs.length, subdomains: subs.slice(0, 200) };
-  } catch (err) { return { success: false, error: err.stderr || err.message }; }
+  } catch (err) { 
+    if (err.code === 'ETIMEDOUT' || err.message?.includes('ETIMEDOUT')) {
+      return { success: false, error: `subfinder timed out after ${timeout}s` };
+    }
+    return { success: false, error: (err.stderr ? err.stderr.toString() : err.message) }; 
+  }
 }
 
 // ═══ HTTPX ═══
@@ -153,7 +164,7 @@ export async function executeHttpx(args) {
   const inputFile = join(config.outputDir, `httpx-in-${Date.now()}.txt`);
   writeFileSync(inputFile, targets.split(',').map(t => t.trim()).join('\n'));
 
-  let cmd = `httpx -l "${inputFile}" -json -silent -nc -timeout ${timeout} -status-code -title -web-server -content-length`;
+  let cmd = `timeout -k 15 ${timeout + 15} httpx -l "${inputFile}" -json -silent -nc -timeout ${timeout} -status-code -title -web-server -content-length`;
   if (ports) cmd += ` -ports ${ports}`;
   if (tech_detect) cmd += ' -tech-detect';
   cmd += ' -follow-redirects';
@@ -163,7 +174,12 @@ export async function executeHttpx(args) {
     const results = out.trim().split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
       .map(r => ({ url: r.url, status: r.status_code, title: r.title, server: r.webserver, tech: r.tech || [], length: r.content_length }));
     return { success: true, total: results.length, results: results.slice(0, 100) };
-  } catch (err) { return { success: false, error: err.stderr || err.message }; }
+  } catch (err) { 
+    if (err.code === 'ETIMEDOUT' || err.message?.includes('ETIMEDOUT')) {
+      return { success: false, error: `httpx timed out after ${timeout}s` };
+    }
+    return { success: false, error: (err.stderr ? err.stderr.toString() : err.message) }; 
+  }
 }
 
 // ═══ NAABU ═══
@@ -189,7 +205,7 @@ export async function executeNaabu(args) {
   const { target, ports = 'top-100', rate = 1000, timeout = 60 } = args;
   if (!checkTool('naabu')) return { success: false, error: 'naabu not installed. Install: go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest' };
 
-  let cmd = `naabu -host "${target}" -json -silent -nc -rate ${rate}`;
+  let cmd = `timeout -k 15 ${timeout + 15} naabu -host "${target}" -json -silent -nc -rate ${rate}`;
   if (ports === 'full') cmd += ' -p -';
   else if (ports.startsWith('top-')) cmd += ` -top-ports ${ports.replace('top-', '')}`;
   else cmd += ` -p ${ports}`;
@@ -200,7 +216,12 @@ export async function executeNaabu(args) {
       .map(r => ({ ip: r.ip || r.host, port: r.port, protocol: r.protocol || 'tcp' }));
     try { memory.init(); memory.storeScanResult('port_scan', target, 'naabu', { ports: results.map(r => r.port), raw: out.slice(0, 5000) }); } catch {}
     return { success: true, target, total: results.length, open_ports: results };
-  } catch (err) { return { success: false, error: err.stderr || err.message }; }
+  } catch (err) { 
+    if (err.code === 'ETIMEDOUT' || err.message?.includes('ETIMEDOUT')) {
+      return { success: false, error: `naabu timed out after ${timeout}s` };
+    }
+    return { success: false, error: (err.stderr ? err.stderr.toString() : err.message) }; 
+  }
 }
 
 // ═══ KATANA ═══
@@ -227,7 +248,7 @@ export async function executeKatana(args) {
   const { target, depth = 3, js_crawl = true, headless = false, timeout = 60 } = args;
   if (!checkTool('katana')) return { success: false, error: 'katana not installed. Install: go install -v github.com/projectdiscovery/katana/cmd/katana@latest' };
 
-  let cmd = `katana -u "${target}" -d ${depth} -silent -nc -timeout ${timeout}`;
+  let cmd = `timeout -k 15 ${timeout + 15} katana -u "${target}" -d ${depth} -silent -nc -timeout ${timeout}`;
   if (js_crawl) cmd += ' -js-crawl';
   if (headless) cmd += ' -headless';
 
@@ -238,7 +259,12 @@ export async function executeKatana(args) {
     const params = urls.filter(u => /\?.*=/i.test(u));
     const js = urls.filter(u => /\.js(\?|$)/i.test(u));
     return { success: true, target, total: urls.length, summary: { apis: apis.length, params: params.length, js: js.length }, api_endpoints: apis.slice(0, 30), parameterized: params.slice(0, 30), js_files: js.slice(0, 20), all_urls: urls.slice(0, 100) };
-  } catch (err) { return { success: false, error: err.stderr || err.message }; }
+  } catch (err) { 
+    if (err.code === 'ETIMEDOUT' || err.message?.includes('ETIMEDOUT')) {
+      return { success: false, error: `katana timed out after ${timeout}s` };
+    }
+    return { success: false, error: (err.stderr ? err.stderr.toString() : err.message) }; 
+  }
 }
 
 // ═══ DNSX ═══
@@ -266,14 +292,19 @@ export async function executeDnsx(args) {
   ensureOutputDir();
   const inputFile = join(config.outputDir, `dnsx-in-${Date.now()}.txt`);
   writeFileSync(inputFile, targets.split(',').map(t => t.trim()).join('\n'));
-  let cmd = `dnsx -l "${inputFile}" -json -silent -nc -timeout ${timeout} -resp`;
+  let cmd = `timeout -k 15 ${timeout + 15} dnsx -l "${inputFile}" -json -silent -nc -timeout ${timeout} -resp`;
   for (const rt of record_types.split(',')) cmd += ` -${rt.trim()}`;
 
   try {
     const out = execSync(cmd, { timeout: (timeout + 30) * 1000, encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, env: getPDEnv() });
     const results = out.trim().split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
     return { success: true, total: results.length, results: results.slice(0, 100) };
-  } catch (err) { return { success: false, error: err.stderr || err.message }; }
+  } catch (err) { 
+    if (err.code === 'ETIMEDOUT' || err.message?.includes('ETIMEDOUT')) {
+      return { success: false, error: `dnsx timed out after ${timeout}s` };
+    }
+    return { success: false, error: (err.stderr ? err.stderr.toString() : err.message) }; 
+  }
 }
 
 // ═══ UNCOVER ═══
@@ -299,12 +330,17 @@ export async function executeUncover(args) {
   const { query, engine = 'shodan', limit = 100, timeout = 30 } = args;
   if (!checkTool('uncover')) return { success: false, error: 'uncover not installed. Install: go install -v github.com/projectdiscovery/uncover/cmd/uncover@latest' };
 
-  let cmd = `uncover -q "${query}" -json -silent -nc -limit ${limit} -timeout ${timeout}`;
+  let cmd = `timeout -k 15 ${timeout + 15} uncover -q "${query}" -json -silent -nc -limit ${limit} -timeout ${timeout}`;
   if (engine !== 'all') cmd += ` -e ${engine}`;
 
   try {
     const out = execSync(cmd, { timeout: (timeout + 30) * 1000, encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, env: getPDEnv() });
     const results = out.trim().split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return { host: l.trim() }; } }).filter(Boolean);
     return { success: true, query, engine, total: results.length, results: results.slice(0, 100) };
-  } catch (err) { return { success: false, error: err.stderr || err.message }; }
+  } catch (err) { 
+    if (err.code === 'ETIMEDOUT' || err.message?.includes('ETIMEDOUT')) {
+      return { success: false, error: `uncover timed out after ${timeout}s` };
+    }
+    return { success: false, error: (err.stderr ? err.stderr.toString() : err.message) }; 
+  }
 }

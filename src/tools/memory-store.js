@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Persistent Memory Store Tool
+// Jarvis Cyber — Persistent Memory Store Tool
 import { memory } from '../memory.js';
 
 export const definition = {

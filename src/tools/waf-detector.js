@@ -1,4 +1,5 @@
-// OpenClaw Cyber — WAF Detector & Bypass Tool
+// Jarvis Cyber — WAF Detector & Bypass Tool
+import { networkErrorMessage } from './network-utils.js';
 export const definition = {
   type: 'function',
   function: {
@@ -189,6 +190,6 @@ export async function execute(args) {
       ] : []
     };
   } catch (err) {
-    return { success: false, error: err.message };
+    return { success: false, error: networkErrorMessage(err, 'WAF detection failed') };
   }
 }

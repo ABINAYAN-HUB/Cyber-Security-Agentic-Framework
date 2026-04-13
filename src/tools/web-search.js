@@ -1,6 +1,7 @@
-// OpenClaw Cyber — Web Search (Pure JS — No Python Dependency)
+// Jarvis Cyber — Web Search (Pure JS — No Python Dependency)
 // Uses duck-duck-scrape npm package (already installed)
 import { search as ddgSearch } from 'duck-duck-scrape';
+import { networkErrorMessage } from './network-utils.js';
 
 export const definition = {
   type: 'function',
@@ -93,7 +94,7 @@ export async function execute(args) {
         note: 'Use read_url to view the full content of a specific result.'
       };
     } catch (fallbackErr) {
-      return { success: false, error: `Search failed: ${err.message}. Fallback also failed: ${fallbackErr.message}` };
+      return { success: false, error: networkErrorMessage(err, 'Web search failed') + ` Fallback also failed: ${fallbackErr.message}` };
     }
   }
 }

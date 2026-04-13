@@ -1,4 +1,5 @@
-// OpenClaw Cyber — HTTP Security Header Analysis
+// Jarvis Cyber — HTTP Security Header Analysis
+import { networkErrorMessage } from './network-utils.js';
 export const definition = {
   type: 'function',
   function: {
@@ -118,7 +119,7 @@ export async function execute(args) {
       all_headers: headers
     };
   } catch (err) {
-    return { success: false, error: err.message };
+    return { success: false, error: networkErrorMessage(err, 'Header analysis failed') };
   }
 }
 

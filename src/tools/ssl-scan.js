@@ -1,4 +1,4 @@
-// OpenClaw Cyber — SSL/TLS Scanner
+// Jarvis Cyber — SSL/TLS Scanner
 import { connect } from 'tls';
 import { createConnection } from 'net';
 

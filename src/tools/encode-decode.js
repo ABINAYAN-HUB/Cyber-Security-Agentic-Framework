@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Encoder/Decoder Tool
+// Jarvis Cyber — Encoder/Decoder Tool
 export const definition = {
   type: 'function',
   function: {

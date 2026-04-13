@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Interactive REPL
+// Jarvis Cyber — Interactive REPL
 import readline from 'readline';
 import { Agent } from './agent.js';
 import { checkServer } from './api.js';
@@ -39,8 +39,8 @@ export async function startRepl(cwd, options = {}) {
   if (!serverCheck.ok) {
     ui.printError(`Cannot connect to NVIDIA NIM at ${config.baseUrl}`);
     console.log(ui.colors.muted('  Make sure your NVIDIA API key is set in .env'));
-    console.log(ui.colors.muted('  Get your key at: https://integrate.api.nvidia.com\n'));
-    process.exit(1);
+    console.log(ui.colors.muted('  Get your key at: https://integrate.api.nvidia.com'));
+    console.log(ui.colors.warning('  Starting in OFFLINE mode. AI reasoning will fail until network is restored.\n'));
   }
 
   const availableModels = serverCheck.models || [];
@@ -137,7 +137,7 @@ export async function startRepl(cwd, options = {}) {
   }
 
   function cleanupAndExit() {
-    console.log(ui.colors.muted('\n  🐉 OpenClaw Cyber v3.0 — Goodbye! 👋\n'));
+    console.log(ui.colors.muted('\n  🐉 Jarvis Cyber v3.0 — Goodbye! 👋\n'));
     try { memory.close(); } catch {}
     rl.close();
     process.exit(0);

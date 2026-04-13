@@ -1,4 +1,5 @@
-// OpenClaw Cyber — Technology Detection Tool
+// Jarvis Cyber — Technology Detection Tool
+import { networkErrorMessage } from './network-utils.js';
 export const definition = {
   type: 'function',
   function: {
@@ -152,6 +153,6 @@ export async function execute(args) {
       powered_by: headers['x-powered-by'] || 'unknown'
     };
   } catch (err) {
-    return { success: false, error: err.message };
+    return { success: false, error: networkErrorMessage(err, 'Tech detection failed') };
   }
 }

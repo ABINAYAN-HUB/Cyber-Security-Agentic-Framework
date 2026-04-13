@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Metasploit RPC Interface
+// Jarvis Cyber — Metasploit RPC Interface
 export const definition = {
   type: 'function',
   function: {
@@ -82,7 +82,7 @@ function _searchModules(query) {
 function _generateRC(module, rhosts, lhost, lport, payload, options) {
   if (!module) return { success: false, error: 'module path required' };
 
-  let rc = `# OpenClaw Auto-Generated Metasploit Resource Script\n`;
+  let rc = `# Jarvis Auto-Generated Metasploit Resource Script\n`;
   rc += `# Generated: ${new Date().toISOString()}\n\n`;
   rc += `use ${module}\n`;
   if (rhosts) rc += `set RHOSTS ${rhosts}\n`;

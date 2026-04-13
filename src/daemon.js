@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Daemon / Heartbeat System
+// Jarvis Cyber — Daemon / Heartbeat System
 // Persistent background process with auto-learning, task execution, and Telegram bot
 import cron from 'node-cron';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
@@ -18,7 +18,7 @@ export class Daemon {
   }
 
   async start() {
-    console.log('🔄 OpenClaw Cyber Daemon starting...');
+    console.log('🔄 Jarvis Cyber Daemon starting...');
     
     // Initialize memory
     try { memory.init(); } catch {}
@@ -30,7 +30,7 @@ export class Daemon {
 
     // Create heartbeat file if missing
     if (!existsSync(config.heartbeatFile)) {
-      writeFileSync(config.heartbeatFile, `# OpenClaw Heartbeat Tasks\n\n## Pending Tasks\n\n_No tasks queued. Add tasks here and the daemon will pick them up._\n`);
+      writeFileSync(config.heartbeatFile, `# Jarvis Heartbeat Tasks\n\n## Pending Tasks\n\n_No tasks queued. Add tasks here and the daemon will pick them up._\n`);
     }
 
     // Start Telegram bot if token is available
@@ -120,7 +120,7 @@ export class Daemon {
           }
 
           if (tasks.length > 0) {
-            writeFileSync(config.heartbeatFile, `# OpenClaw Heartbeat Tasks\n\n## Pending Tasks\n\n_No tasks queued._\n\n## Last Run: ${new Date().toISOString()}\nCompleted ${tasks.length} tasks.\n`);
+            writeFileSync(config.heartbeatFile, `# Jarvis Heartbeat Tasks\n\n## Pending Tasks\n\n_No tasks queued._\n\n## Last Run: ${new Date().toISOString()}\nCompleted ${tasks.length} tasks.\n`);
           }
         } catch (err) {
           console.error(`  ❌ Heartbeat file error: ${err.message}`);

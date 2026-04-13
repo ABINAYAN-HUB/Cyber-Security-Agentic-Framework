@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Comprehensive Test Suite
+// Jarvis Cyber — Comprehensive Test Suite
 // Tests all components: database, tools, auto-learner, agent
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -365,7 +365,7 @@ async function testCLI() {
 
   test('CLI --help works', () => {
     const output = execSync(`node ${join(projectDir, 'cli.js')} --help`, { encoding: 'utf-8' });
-    assert(output.includes('OpenClaw Cyber'), 'Help should mention OpenClaw Cyber');
+    assert(output.includes('Jarvis Cyber'), 'Help should mention Jarvis Cyber');
     assert(output.includes('50+'), 'Help should mention 50+ tools');
     assert(output.includes('fofa_search'), 'Help should list fofa_search');
     assert(output.includes('nuclei_scan'), 'Help should list nuclei_scan');
@@ -373,16 +373,16 @@ async function testCLI() {
     assert(output.includes('--daemon'), 'Help should mention --daemon');
   });
 
-  test('CLI help does not mention Jarvis', () => {
+  test('CLI help does not mention OpenClaw', () => {
     const output = execSync(`node ${join(projectDir, 'cli.js')} --help`, { encoding: 'utf-8' });
-    assert(!output.includes('Jarvis'), 'Should not contain Jarvis branding');
+    assert(!output.includes('OpenClaw'), 'Should not contain old OpenClaw branding');
   });
 }
 
 // ═══════════════════════════════════════════════
 // RUN ALL TESTS
 // ═══════════════════════════════════════════════
-console.log('🐉 OpenClaw Cyber — Test Suite v3.0');
+console.log('🐉 Jarvis Cyber — Test Suite v3.1');
 console.log('═══════════════════════════════════════');
 
 try {

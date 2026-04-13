@@ -6,7 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVICE_DIR="$HOME/.config/systemd/user"
-SERVICE_FILE="$SERVICE_DIR/openclaw.service"
+SERVICE_FILE="$SERVICE_DIR/jarvis.service"
 NODE_PATH=$(command -v node)
 
 echo "🐉 OpenClaw Cyber — Service Installer"
@@ -38,8 +38,8 @@ WorkingDirectory=$SCRIPT_DIR
 ExecStart=$NODE_PATH $SCRIPT_DIR/cli.js --daemon
 Restart=always
 RestartSec=10
-StandardOutput=append:$HOME/.openclaw/daemon.log
-StandardError=append:$HOME/.openclaw/daemon-error.log
+StandardOutput=append:$HOME/.jarvis/daemon.log
+StandardError=append:$HOME/.jarvis/daemon-error.log
 Environment=NODE_ENV=production
 Environment=PDCP_API_KEY=\${PDCP_API_KEY:-}
 Environment=PATH=$HOME/go/bin:$PATH
@@ -55,14 +55,14 @@ EOF
 echo "✅ Service file created: $SERVICE_FILE"
 
 # Create log directory
-mkdir -p "$HOME/.openclaw"
+mkdir -p "$HOME/.jarvis"
 
 # Reload systemd
 systemctl --user daemon-reload
 echo "✅ Systemd reloaded"
 
 # Enable the service (auto-start on boot)
-systemctl --user enable openclaw.service
+systemctl --user enable jarvis.service
 echo "✅ Service enabled (will auto-start on boot)"
 
 # Enable lingering (keeps services running even when not logged in)
@@ -70,18 +70,18 @@ loginctl enable-linger "$USER" 2>/dev/null || true
 echo "✅ Lingering enabled (runs even when logged out)"
 
 # Start the service now
-systemctl --user start openclaw.service
+systemctl --user start jarvis.service
 echo "✅ Service started"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🐉 OpenClaw Cyber is now running as a background service!"
 echo ""
-echo "  Status:  systemctl --user status openclaw"
-echo "  Logs:    journalctl --user -u openclaw -f"
-echo "  Stop:    systemctl --user stop openclaw"
-echo "  Restart: systemctl --user restart openclaw"
-echo "  Disable: systemctl --user disable openclaw"
+echo "  Status:  systemctl --user status jarvis"
+echo "  Logs:    journalctl --user -u jarvis -f"
+echo "  Stop:    systemctl --user stop jarvis"
+echo "  Restart: systemctl --user restart jarvis"
+echo "  Disable: systemctl --user disable jarvis"
 echo ""
-echo "  Log file: $HOME/.openclaw/daemon.log"
+echo "  Log file: $HOME/.jarvis/daemon.log"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Native Port Scanner
+// Jarvis Cyber — Native Port Scanner
 import net from 'net';
 
 export const definition = {

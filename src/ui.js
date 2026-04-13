@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Terminal UI
+// Jarvis Cyber — Terminal UI
 import { EventEmitter } from 'events';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -64,18 +64,18 @@ const icons = {
 };
 
 // ═══════════════════════════════════════════════════
-// Welcome Banner — OpenClaw Cyber
+// Welcome Banner — Jarvis Cyber
 // ═══════════════════════════════════════════════════
 export function printBanner() {
   const banner = `
 ${colors.primary('╔══════════════════════════════════════════════════════════════════════╗')}
 ${colors.primary('║')}                                                                      ${colors.primary('║')}
-${colors.primary('║')}   ${colors.danger.bold(' ██████╗ ██████╗ ███████╗███╗   ██╗ ██████╗██╗      █████╗ ██╗    ██╗')}${colors.primary('║')}
-${colors.primary('║')}   ${colors.danger.bold('██╔═══██╗██╔══██╗██╔════╝████╗  ██║██╔════╝██║     ██╔══██╗██║    ██║')}${colors.primary('║')}
-${colors.primary('║')}   ${colors.danger.bold('██║   ██║██████╔╝█████╗  ██╔██╗ ██║██║     ██║     ███████║██║ █╗ ██║')}${colors.primary('║')}
-${colors.primary('║')}   ${colors.danger.bold('██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║██║     ██║     ██╔══██║██║███╗██║')}${colors.primary('║')}
-${colors.primary('║')}   ${colors.danger.bold('╚██████╔╝██║     ███████╗██║ ╚████║╚██████╗███████╗██║  ██║╚███╔███╔╝')}${colors.primary('║')}
-${colors.primary('║')}   ${colors.danger.bold(' ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝ ')}${colors.primary('║')}
+${colors.primary('║')}      ${colors.danger.bold('██╗ █████╗ ██████╗ ██╗   ██╗██╗███████╗')}                ${colors.primary('║')}
+${colors.primary('║')}      ${colors.danger.bold('██║██╔══██╗██╔══██╗██║   ██║██║██╔════╝')}                ${colors.primary('║')}
+${colors.primary('║')}      ${colors.danger.bold('██║███████║██████╔╝██║   ██║██║███████╗')}                ${colors.primary('║')}
+${colors.primary('║')} ${colors.danger.bold('██   ██║██╔══██║██╔══██╗╚██╗ ██╔╝██║╚════██║')}                ${colors.primary('║')}
+${colors.primary('║')} ${colors.danger.bold('╚█████╔╝██║  ██║██║  ██║ ╚████╔╝ ██║███████║')}                ${colors.primary('║')}
+${colors.primary('║')}  ${colors.danger.bold('╚════╝ ╚═╝  ╚═╝╚═╝  ╚═╝  ╚═══╝  ╚═╝╚══════╝')}                ${colors.primary('║')}
 ${colors.primary('║')}                                                                      ${colors.primary('║')}
 ${colors.primary('║')}   ${colors.secondary.bold('C Y B E R')} ${colors.muted('— Autonomous AI Cybersecurity Agent v3.0')}               ${colors.primary('║')}
 ${colors.primary('║')}   ${colors.muted(`NVIDIA NIM │ ${(config.model || 'auto').padEnd(15)} │ 50+ Tools │ Auto-Learn │ DB`)}  ${colors.primary('║')}

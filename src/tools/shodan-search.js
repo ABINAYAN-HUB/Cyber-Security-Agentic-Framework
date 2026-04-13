@@ -1,5 +1,6 @@
-// OpenClaw Cyber — Shodan Search Tool
+// Jarvis Cyber — Shodan Search Tool
 import config from '../config.js';
+import { networkErrorMessage } from './network-utils.js';
 
 export const definition = {
   type: 'function',
@@ -97,6 +98,6 @@ export async function execute(args) {
       }))
     };
   } catch (err) {
-    return { success: false, error: err.message };
+    return { success: false, error: networkErrorMessage(err, 'Shodan search failed') };
   }
 }

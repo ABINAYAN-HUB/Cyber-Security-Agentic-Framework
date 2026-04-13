@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Save Artifact Tool
+// Jarvis Cyber — Save Artifact Tool
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import config from '../config.js';

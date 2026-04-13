@@ -1,4 +1,5 @@
-// OpenClaw Cyber — GitHub Search
+// Jarvis Cyber — GitHub Search
+import { networkErrorMessage } from './network-utils.js';
 export const definition = {
   type: 'function',
   function: {
@@ -43,7 +44,7 @@ export async function execute(args) {
 
   try {
     const startTime = Date.now();
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
     const elapsed = Date.now() - startTime;
 
     if (!response.ok) {
@@ -52,6 +53,12 @@ export async function execute(args) {
             success: false,
             error: 'GitHub API Rate Limit exceeded. Consider setting GITHUB_TOKEN in your .env file.'
          };
+      }
+      if (response.status === 401) {
+         if (type === 'code' && !process.env.GITHUB_TOKEN) {
+            return { success: false, error: 'GitHub API Error: 401 Unauthorized. Note: Code search requires authentication. Set GITHUB_TOKEN in .env.' };
+         }
+         return { success: false, error: 'GitHub API Error: 401 Unauthorized. Your GITHUB_TOKEN may be invalid or expired.' };
       }
       return {
         success: false,
@@ -64,7 +71,7 @@ export async function execute(args) {
   } catch (err) {
     return {
       success: false,
-      error: `Failed to search GitHub: ${err.message}`
+      error: networkErrorMessage(err, 'GitHub search failed')
     };
   }
 }

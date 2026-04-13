@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Fuzzing Engine
+// Jarvis Cyber — Fuzzing Engine
 export const definition = {
   type: 'function',
   function: {

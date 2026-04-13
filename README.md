@@ -60,7 +60,7 @@ export PATH="$HOME/go/bin:$PATH"
 npm link
 
 # 7. Run!
-openclaw
+jarvis
 ```
 
 ---
@@ -69,19 +69,19 @@ openclaw
 
 ### Interactive CLI (Default)
 ```bash
-openclaw                    # or: node cli.js
+jarvis                    # or: node cli.js
 ```
 Type naturally: *"Scan example.com for vulnerabilities"*, *"Find subdomains of target.com"*, *"Search FOFA for exposed databases"*
 
 ### Telegram Bot
 ```bash
-openclaw --telegram         # or: node cli.js --telegram
+jarvis --telegram         # or: node cli.js --telegram
 ```
 Control OpenClaw remotely from your phone via Telegram.
 
 ### Background Daemon (24/7)
 ```bash
-openclaw --daemon           # or: node cli.js --daemon
+jarvis --daemon           # or: node cli.js --daemon
 ```
 Runs as a persistent background process with:
 - Auto-learning every 30 minutes
@@ -90,7 +90,7 @@ Runs as a persistent background process with:
 
 ### Single Learning Cycle
 ```bash
-openclaw --learn            # or: node cli.js --learn
+jarvis --learn            # or: node cli.js --learn
 ```
 Run one auto-learning cycle and exit.
 

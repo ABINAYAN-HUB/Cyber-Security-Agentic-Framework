@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// OpenClaw Cyber — Entry Point
+// Jarvis Cyber — Entry Point
 // Autonomous AI Cybersecurity Agent with Telegram Bot, Auto-Learning & 50+ Security Tools
 
 import { startRepl } from './src/repl.js';
@@ -11,12 +11,12 @@ const args = process.argv.slice(2);
 
 if (args.includes('--help') || args.includes('-h')) {
   console.log(`
-  🐉 OpenClaw Cyber — Autonomous AI Cybersecurity Agent
+  🐉 Jarvis Cyber — Autonomous AI Cybersecurity Agent
   Powered by NVIDIA NIM API │ 50+ Security Tools │ Auto-Learning │ Telegram Bot
 
   Usage:
     node cli.js [options]
-    openclaw [options]
+    jarvis [options]
 
   Modes:
     (default)               Interactive CLI REPL
@@ -114,7 +114,7 @@ else if (args.includes('--telegram')) {
     try {
       const bot = new TelegramInterface();
       await bot.start();
-      console.log('\n🐉 OpenClaw Cyber — Telegram Bot Mode');
+      console.log('\n🐉 Jarvis Cyber — Telegram Bot Mode');
       console.log('   Press Ctrl+C to stop.\n');
     } catch (err) {
       console.error(`Fatal: ${err.message}`);

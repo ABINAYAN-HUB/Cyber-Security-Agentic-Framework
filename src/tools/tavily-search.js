@@ -1,6 +1,7 @@
-// OpenClaw Cyber — Tavily Search Pro
+// Jarvis Cyber — Tavily Search Pro
 // Matched to actual Tavily API response format
 import config from '../config.js';
+import { networkErrorMessage } from './network-utils.js';
 
 export const definition = {
   type: 'function',
@@ -89,6 +90,6 @@ export async function execute(args) {
       request_id: data.request_id
     };
   } catch (err) {
-    return { success: false, error: err.message };
+    return { success: false, error: networkErrorMessage(err, 'Tavily search failed') };
   }
 }

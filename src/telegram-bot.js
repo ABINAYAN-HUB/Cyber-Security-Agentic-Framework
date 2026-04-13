@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Telegram Bot Interface
+// Jarvis Cyber — Telegram Bot Interface
 // Full AI agent control via Telegram messaging
 import TelegramBot from 'node-telegram-bot-api';
 import { Agent } from './agent.js';
@@ -23,10 +23,10 @@ export class TelegramInterface {
     // Initialize memory
     try { memory.init(); } catch {}
 
-    console.log('🤖 OpenClaw Cyber Telegram Bot starting...');
+    console.log('🤖 Jarvis Cyber Telegram Bot starting...');
 
     // ═══ Step 1: Kill any existing bot process using PID lock file ═══
-    const pidFile = join(config.dataDir, '.openclaw-bot.pid');
+    const pidFile = join(config.dataDir, '.jarvis-bot.pid');
     try {
       if (existsSync(pidFile)) {
         const oldPid = parseInt(readFileSync(pidFile, 'utf-8').trim(), 10);
@@ -146,7 +146,7 @@ export class TelegramInterface {
         }
 
         if (conflict409Count >= 10) {
-          console.error('❌ Persistent 409 Conflict. Run: pkill -f "node cli.js" && sleep 5 && openclaw --telegram');
+          console.error('❌ Persistent 409 Conflict. Run: pkill -f "node cli.js" && sleep 5 && jarvis --telegram');
         }
       } else if (msg.includes('ETIMEDOUT') || msg.includes('ECONNRESET') || msg.includes('ENOTFOUND')) {
         // Network issues — silent, they auto-recover
@@ -266,8 +266,9 @@ export class TelegramInterface {
       return `<pre><code>${this._escapeHtml(code.trim())}</code></pre>`;
     });
 
-    // Convert inline code: `code` -> <code>code</code> (but NOT inside <pre> tags)
-    result = result.replace(/(?<!<pre><code>[\s\S]*?)`([^`\n]+)`(?![\s\S]*?<\/code><\/pre>)/g, (match, code) => {
+    // Convert inline code: `code` -> <code>code</code>
+    // Simple approach: skip content already inside <pre><code> blocks
+    result = result.replace(/`([^`\n]+)`/g, (match, code) => {
       return `<code>${this._escapeHtml(code)}</code>`;
     });
 
@@ -366,7 +367,7 @@ export class TelegramInterface {
       );
     }
 
-    const welcome = `🐉 <b>OpenClaw Cyber — Online</b>
+    const welcome = `🐉 <b>Jarvis Cyber — Online</b>
 
 Your autonomous cybersecurity AI agent is ready.
 
@@ -391,7 +392,7 @@ It can execute commands, scan targets, write exploits, and more.`;
   async _handleHelp(msg) {
     if (!this._isAllowed(msg)) return;
 
-    const help = `🔧 <b>OpenClaw Cyber — Command Reference</b>
+    const help = `🔧 <b>Jarvis Cyber — Command Reference</b>
 
 <b>Chat Commands:</b>
 Just type naturally. Examples:
@@ -447,7 +448,7 @@ Just type naturally. Examples:
     let stats = { knowledge: 0, targets: 0, loot: 0, tasks: 0, skills: 0 };
     try { stats = memory.getStats(); } catch {}
 
-    const status = `📊 <b>OpenClaw Status</b>
+    const status = `📊 <b>Jarvis Status</b>
 
 <b>Model:</b> <code>${this._escapeHtml(config.model)}</code>
 <b>Input Tokens:</b> ${usage.inputTokens.toLocaleString()}

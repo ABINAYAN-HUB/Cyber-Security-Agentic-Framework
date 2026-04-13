@@ -1,4 +1,5 @@
-// OpenClaw Cyber — IP Geolocation Tool
+// Jarvis Cyber — IP Geolocation Tool
+import { networkErrorMessage } from './network-utils.js';
 export const definition = {
   type: 'function',
   function: {
@@ -136,6 +137,6 @@ export async function execute(args) {
       }
     };
   } catch (err) {
-    return { success: false, error: `Geolocation lookup failed: ${err.message}` };
+    return { success: false, error: networkErrorMessage(err, 'Geolocation lookup failed') };
   }
 }

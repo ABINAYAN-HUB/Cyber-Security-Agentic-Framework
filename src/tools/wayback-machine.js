@@ -1,4 +1,5 @@
-// OpenClaw Cyber — Wayback Machine Tool
+// Jarvis Cyber — Wayback Machine Tool
+import { networkErrorMessage } from './network-utils.js';
 export const definition = {
   type: 'function',
   function: {
@@ -75,6 +76,6 @@ export async function execute(args) {
       note: 'Interesting URLs are filtered for potentially sensitive paths. Use read_url on archive.org links to view historical content.'
     };
   } catch (err) {
-    return { success: false, error: err.message };
+    return { success: false, error: networkErrorMessage(err, 'Wayback Machine lookup failed') };
   }
 }

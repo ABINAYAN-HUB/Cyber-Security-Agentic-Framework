@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Cloud Enumeration Tool
+// Jarvis Cyber — Cloud Enumeration Tool
 export const definition = {
   type: 'function',
   function: {

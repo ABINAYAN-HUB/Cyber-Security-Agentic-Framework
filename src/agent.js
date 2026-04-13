@@ -20,6 +20,7 @@ export class Agent {
     // Generic Anti-loop state
     this.consecutiveFailures = 0;
     this.failedToolSignatures = {};
+    this.networkRetryCount = 0; // Caps network reconnection attempts per message turn
   }
 
   /**
@@ -73,7 +74,24 @@ export class Agent {
 
       } catch (error) {
         ui.printError(`Agent error: ${error.message}`);
+        
+        // Persistent retry loop for network outages so the agent task doesn't just die
+        if (error.message.includes('NVIDIA NIM API') || error.message.includes('fetch failed') || error.message.includes('network error')) {
+          this.networkRetryCount++;
+          if (this.networkRetryCount > 10) {
+            ui.printError('Network has been unreachable for 10+ consecutive retries. Stopping to avoid infinite loop.');
+            this.messages.push({ role: 'user', content: '[SYSTEM] CRITICAL: Network connectivity lost for extended period. All API calls are failing. Cannot continue until network is restored.' });
+            break;
+          }
+          if (!this.isSubagent) ui.printWarning(`Network disconnection detected (retry ${this.networkRetryCount}/10). Waiting 30s before auto-reconnecting...`);
+          sendDesktopNotification("Agentic Cyber AI", "Alert: Network error. Retrying in 30s...");
+          await new Promise(r => setTimeout(r, 30000));
+          if (loopCount > 0) loopCount--;
+          continue;
+        }
+
         sendDesktopNotification("Agentic Cyber AI", "Alert: Processing halted due to an error.");
+        this.messages.push({ role: 'user', content: `[SYSTEM] CRITICAL EXECUTION ERROR: ${error.message}` });
         break;
       }
     }
@@ -81,7 +99,7 @@ export class Agent {
     if (loopCount >= maxLoops) {
       const msg = `Reached maximum tool call loop limit (${maxLoops}). Stopping. Please ask the user for guidance.`;
       if (!this.isSubagent) ui.printWarning(msg);
-      this.messages.push({ role: 'system', content: msg });
+      this.messages.push({ role: 'user', content: `[SYSTEM] ${msg}` });
       sendDesktopNotification("Agentic Cyber AI", "Alert: Maximum retry loop reached. Need human input.");
     }
   }
@@ -395,7 +413,13 @@ export class Agent {
    * Truncates oversized results to prevent token bloat on subsequent API calls.
    */
   _addToolResult(toolCallId, toolName, result) {
-    let content = JSON.stringify(result);
+    let content;
+    try {
+      content = JSON.stringify(result);
+    } catch (e) {
+      content = JSON.stringify({ success: false, error: "Result serialization failed: " + String(e) });
+      result = { _clipped: true }; // prevent further processing issues
+    }
     
     // Truncate massive tool results (e.g. full file contents, huge command output)
     // to prevent sending 50KB+ back to the API on the next turn

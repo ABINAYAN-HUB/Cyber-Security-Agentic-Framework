@@ -1,10 +1,10 @@
 {
-  "name": "openclaw-cyber",
+  "name": "jarvis-cyber",
   "version": "3.0.0",
-  "description": "OpenClaw Cyber — Autonomous AI Cybersecurity Agent with Auto-Learning, FOFA, ProjectDiscovery, Telegram Bot & 50+ Security Tools",
+  "description": "Jarvis Cyber — Autonomous AI Cybersecurity Agent with Auto-Learning, FOFA, ProjectDiscovery, Telegram Bot & 50+ Security Tools",
   "main": "cli.js",
   "bin": {
-    "openclaw": "./cli.js"
+    "jarvis": "./cli.js"
   },
   "type": "module",
   "engines": {
@@ -30,7 +30,7 @@
     "test": "node tests/test-all.js"
   },
   "keywords": [
-    "openclaw",
+    "jarvis",
     "cybersecurity",
     "agent",
     "ai",
@@ -50,12 +50,12 @@
     "auto-learning",
     "threat-intelligence"
   ],
-  "author": "OpenClaw Team",
+  "author": "Jarvis Team",
   "license": "MIT",
-  "homepage": "https://github.com/openclaw/openclaw-cyber",
+  "homepage": "https://github.com/ABINAYAN-HUB/Jarvis-Cyber",
   "repository": {
     "type": "git",
-    "url": "https://github.com/openclaw/openclaw-cyber.git"
+    "url": "https://github.com/ABINAYAN-HUB/Jarvis-Cyber.git"
   },
   "dependencies": {
     "axios": "^1.14.0",

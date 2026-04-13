@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Payload Generator
+// Jarvis Cyber — Payload Generator
 export const definition = {
   type: 'function',
   function: {

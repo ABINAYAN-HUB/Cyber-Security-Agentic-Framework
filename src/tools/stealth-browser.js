@@ -1,5 +1,6 @@
-// OpenClaw Cyber — Stealth Browser Tool
+// Jarvis Cyber — Stealth Browser Tool
 // Headless Puppeteer-based browser with anti-detection measures
+import config from '../config.js';
 
 export const definition = {
   type: 'function',
@@ -16,7 +17,8 @@ export const definition = {
         value: { type: 'string', description: 'Value to fill (for fill_form action)' },
         wait_ms: { type: 'integer', description: 'Wait time after page load in ms (default: 3000)' },
         proxy: { type: 'string', description: 'Proxy URL (e.g., "socks5://127.0.0.1:9050" for Tor)' },
-        user_agent: { type: 'string', description: 'Custom User-Agent string' }
+        user_agent: { type: 'string', description: 'Custom User-Agent string' },
+        wait_until: { type: 'string', enum: ['load', 'domcontentloaded', 'networkidle0', 'networkidle2'], description: 'Puppeteer waitUntil condition (default: networkidle2)' }
       },
       required: ['url']
     }
@@ -24,7 +26,7 @@ export const definition = {
 };
 
 export async function execute(args) {
-  const { url, action = 'extract', javascript, selector, value, wait_ms = 3000, proxy, user_agent } = args;
+  const { url, action = 'extract', javascript, selector, value, wait_ms = 3000, proxy, user_agent, wait_until = 'networkidle2' } = args;
 
   let browser, page;
   
@@ -110,7 +112,7 @@ export async function execute(args) {
     page.on('console', msg => consoleMsgs.push({ type: msg.type(), text: msg.text() }));
 
     // Navigate
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(url, { waitUntil: wait_until, timeout: 30000 });
     
     // Wait additional time
     if (wait_ms > 0) {
@@ -123,7 +125,7 @@ export async function execute(args) {
       case 'screenshot': {
         const { mkdirSync, existsSync } = await import('fs');
         const { join } = await import('path');
-        const outDir = './openclaw-output';
+        const outDir = config.outputDir;
         if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
         const filename = `screenshot_${Date.now()}.png`;
         const filepath = join(outDir, filename);

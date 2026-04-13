@@ -1,4 +1,4 @@
-// OpenClaw Cyber — WHOIS Lookup Tool
+// Jarvis Cyber — WHOIS Lookup Tool
 export const definition = {
   type: 'function',
   function: {

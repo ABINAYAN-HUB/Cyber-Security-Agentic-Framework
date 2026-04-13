@@ -1,3 +1,4 @@
+// Jarvis Cyber — Execute Command Tool
 import { spawn } from 'child_process';
 import { platform } from 'os';
 import * as ui from '../ui.js';
@@ -87,17 +88,10 @@ export async function execute(args, cwd) {
       // Process group kill ensures all child processes spawned by the command die
       try {
         if (proc.pid) {
-          if (isBackground) {
-            process.kill(-proc.pid, 'SIGTERM');
-            setTimeout(() => {
-              try { process.kill(-proc.pid, 'SIGKILL'); } catch {}
-            }, 1000);
-          } else {
-            proc.kill('SIGTERM');
-            setTimeout(() => {
-              try { proc.kill('SIGKILL'); } catch {}
-            }, 1000);
-          }
+          proc.kill('SIGTERM');
+          setTimeout(() => {
+            try { proc.kill('SIGKILL'); } catch {}
+          }, 1000);
         }
       } catch (e) {
         try { proc.kill('SIGKILL'); } catch {}

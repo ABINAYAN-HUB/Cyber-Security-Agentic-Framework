@@ -1,4 +1,5 @@
-// OpenClaw Cyber — Subdomain Enumeration Tool
+// Jarvis Cyber — Subdomain Enumeration Tool
+import { networkErrorMessage } from './network-utils.js';
 export const definition = {
   type: 'function',
   function: {

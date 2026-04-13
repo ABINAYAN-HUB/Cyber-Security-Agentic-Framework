@@ -18,7 +18,23 @@ function getApiUrl() {
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-async function fetchWithRetry(url, options, maxRetries = 5) {
+// ═══ Network error diagnostic helper ═══
+function networkErrorHint(errMsg, err) {
+  if (!errMsg) return '';
+  let msg = typeof errMsg === 'string' ? errMsg : '';
+  if (err?.cause) {
+    msg += ` ${err.cause.code || ''} ${err.cause.message || ''}`;
+  }
+  if (msg.includes('ENOTFOUND')) return ' (DNS resolution failed — check internet connection or DNS settings)';
+  if (msg.includes('ECONNREFUSED')) return ' (Connection refused — server may be down or blocked by firewall)';
+  if (msg.includes('ETIMEDOUT') || msg.includes('UND_ERR_CONNECT_TIMEOUT')) return ' (Connection timed out — server unreachable or network too slow)';
+  if (msg.includes('ECONNRESET')) return ' (Connection reset by server — try again or check if IP is blocked)';
+  if (msg.includes('CERT_HAS_EXPIRED') || msg.includes('UNABLE_TO_VERIFY')) return ' (SSL/TLS certificate error)';
+  if (msg.includes('fetch failed')) return ' (Hint: Likely a local network outage. Verify connectivity with ping 8.8.8.8)';
+  return '';
+}
+
+async function fetchWithRetry(url, options, maxRetries = 10) {
   let lastError;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -32,8 +48,16 @@ async function fetchWithRetry(url, options, maxRetries = 5) {
         continue;
       }
 
-      // If it's a success or client error (except 429), return normally
-      if (response.status < 500) return response; 
+      // If it's a success or non-retryable client error (except 429), return normally
+      // For 400 errors, we still return the response but log a warning since it usually
+      // indicates malformed JSON in the request body (e.g., broken tool_call arguments)
+      if (response.status < 500) {
+        if (response.status === 400 && (config.verbose || attempt >= maxRetries - 1)) {
+          const peekBody = await response.clone().text().catch(() => '');
+          console.warn(`\n  ⚠️  API returned 400 Bad Request: ${peekBody.slice(0, 300)}`);
+        }
+        return response;
+      }
 
       const errText = await response.text().catch(() => '');
       lastError = new Error(`API error (${response.status}): ${errText}`);
@@ -43,12 +67,19 @@ async function fetchWithRetry(url, options, maxRetries = 5) {
     } catch (e) {
       lastError = e;
       if (config.verbose || attempt >= maxRetries - 1) {
-        console.error(`\n  ⚠️  Attempt ${attempt}/${maxRetries} — network error: ${e.message}`);
+        let errorMsg = `\n  ⚠️  Attempt ${attempt}/${maxRetries} — network error: ${e.message}`;
+        errorMsg += networkErrorHint(e.message, e);
+        console.error(errorMsg);
       }
     }
     if (attempt < maxRetries) await sleep(2000 * attempt);
   }
-  throw new Error(`CRITICAL: Connection to NVIDIA NIM API completely failed after ${maxRetries} attempts. Network Error: ${lastError.message}`);
+  let finalErrorMsg = `CRITICAL: Connection to NVIDIA NIM API completely failed after ${maxRetries} attempts. Network Error: ${lastError.message}`;
+  finalErrorMsg += networkErrorHint(lastError.message, lastError);
+  if (!finalErrorMsg.includes('(')) {
+    finalErrorMsg += ' (Check your local internet connection, DNS, or VPN)';
+  }
+  throw new Error(finalErrorMsg);
 }
 
 export async function checkServer() {
@@ -197,6 +228,8 @@ export async function* streamChat(messages, tools, systemPrompt) {
     } else {
       console.error(`\n[API] Uncaught stream error: ${err.message}`);
     }
+  } finally {
+    try { reader.cancel().catch(() => {}); } catch {}
   }
 
   const remainingCalls = Object.values(toolCalls);

@@ -1,4 +1,4 @@
-// OpenClaw Cyber — DNS Reconnaissance Tool
+// Jarvis Cyber — DNS Reconnaissance Tool
 import { Resolver } from 'dns';
 import { promisify } from 'util';
 
