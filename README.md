@@ -1,4 +1,4 @@
-<h1 align="center">🐉 OpenClaw Cyber</h1>
+<h1 align="center">🐉 Jarvis Cyber</h1>
 
 <p align="center">
   <strong>Autonomous AI Cybersecurity Agent</strong><br>
@@ -15,11 +15,11 @@
 
 ---
 
-## 🔥 What is OpenClaw Cyber?
+## 🔥 What is jarvis Cyber?
 
-OpenClaw Cyber is a **fully autonomous AI cybersecurity agent** powered by NVIDIA NIM API. It combines 50+ built-in security tools, a persistent SQLite database, 24/7 auto-learning from global threat feeds, and a Telegram bot interface — all running as a background service on your Kali Linux machine.
+jarvis Cyber is a **fully autonomous AI cybersecurity agent** powered by NVIDIA NIM API. It combines 50+ built-in security tools, a persistent SQLite database, 24/7 auto-learning from global threat feeds, and a Telegram bot interface — all running as a background service on your Kali Linux machine.
 
-**It learns while you sleep.** Every 30 minutes, OpenClaw automatically fetches CVEs, exploits, IOCs, malware hashes, and security news from the internet and stores them in its local database.
+**It learns while you sleep.** Every 30 minutes, jarvis automatically fetches CVEs, exploits, IOCs, malware hashes, and security news from the internet and stores them in its local database.
 
 ---
 
@@ -34,8 +34,8 @@ OpenClaw Cyber is a **fully autonomous AI cybersecurity agent** powered by NVIDI
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/ABINAYAN-HUB/OpenClaw-Cyber.git
-cd OpenClaw-Cyber
+git clone https://github.com/ABINAYAN-HUB/jarvis-Cyber.git
+cd jarvis-Cyber
 
 # 2. Install dependencies
 npm install
@@ -77,7 +77,7 @@ Type naturally: *"Scan example.com for vulnerabilities"*, *"Find subdomains of t
 ```bash
 jarvis --telegram         # or: node cli.js --telegram
 ```
-Control OpenClaw remotely from your phone via Telegram.
+Control jarvis remotely from your phone via Telegram.
 
 ### Background Daemon (24/7)
 ```bash
@@ -104,15 +104,15 @@ This creates a systemd user service that:
 - Starts automatically when you boot Kali
 - Runs even when you're not logged in
 - Restarts on crashes
-- Logs to `~/.openclaw/daemon.log`
+- Logs to `~/.jarvis/daemon.log`
 
 ```bash
 # Service management
-systemctl --user status openclaw      # Check status
-systemctl --user stop openclaw        # Stop
-systemctl --user restart openclaw     # Restart
-systemctl --user disable openclaw     # Disable auto-start
-journalctl --user -u openclaw -f     # Live logs
+systemctl --user status jarvis      # Check status
+systemctl --user stop jarvis        # Stop
+systemctl --user restart jarvis     # Restart
+systemctl --user disable jarvis     # Disable auto-start
+journalctl --user -u jarvis -f     # Live logs
 ```
 
 ---
@@ -178,7 +178,7 @@ journalctl --user -u openclaw -f     # Live logs
 
 ## 🧠 24/7 Auto-Learning
 
-OpenClaw continuously learns from the internet while running as a daemon:
+jarvis continuously learns from the internet while running as a daemon:
 
 | Source | Data | Frequency |
 |--------|------|-----------|
@@ -199,7 +199,7 @@ All data is stored in a local **SQLite database** with 14 tables:
 ## 📂 Project Structure
 
 ```
-OpenClaw-Cyber/
+jarvis-Cyber/
 ├── cli.js                          # Entry point
 ├── package.json                    # Dependencies
 ├── install-service.sh              # Systemd auto-start installer
@@ -290,6 +290,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <strong>🐉 OpenClaw Cyber v3.0</strong><br>
+  <strong>🐉 jarvis Cyber v3.0</strong><br>
   <em>Built by <a href="https://github.com/ABINAYAN-HUB">ABINAYAN</a></em>
 </p>
