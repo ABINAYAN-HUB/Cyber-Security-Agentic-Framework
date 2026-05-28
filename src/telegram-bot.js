@@ -96,12 +96,14 @@ export class TelegramInterface {
     }
 
     // (c) Wait for Telegram servers to fully release the polling connection
-    await new Promise(r => setTimeout(r, 2000));
+    // 5s is needed — Telegram long-poll connections can linger for up to ~30s,
+    // but 5s is enough if we successfully deleted the webhook + drained updates.
+    await new Promise(r => setTimeout(r, 5000));
 
     // ═══ Step 3: Start the bot with polling ═══
     this.bot = new TelegramBot(token, { 
       polling: {
-        interval: 1500,
+        interval: 2000,       // slightly slower poll interval reduces 409 race window
         autoStart: true,
         params: { timeout: 15 }
       }
@@ -121,14 +123,19 @@ export class TelegramInterface {
           console.warn('⚠️  409 Conflict — retrying lock release...');
         }
 
-        // Auto-recovery: try to release the lock again
-        if (!isRetrying409 && conflict409Count <= 5) {
+        // Auto-recovery with exponential backoff (max 3 attempts)
+        if (!isRetrying409 && conflict409Count <= 3) {
           isRetrying409 = true;
+          const backoffMs = Math.min(5000 * conflict409Count, 15000); // 5s, 10s, 15s
           try {
-            // Stop polling, flush, restart
+            // Stop polling completely
             this.bot.stopPolling();
-            await new Promise(r => setTimeout(r, 2000));
+
+            // Wait with exponential backoff for Telegram to release the old session
+            console.log(`   ⏳ Waiting ${backoffMs / 1000}s for Telegram lock release...`);
+            await new Promise(r => setTimeout(r, backoffMs));
             
+            // Flush: delete webhook + drain update queue
             await fetch(`${apiBase}/deleteWebhook?drop_pending_updates=true`);
             const resp = await fetch(`${apiBase}/getUpdates?offset=-1&timeout=0&limit=1`);
             const data = await resp.json();
@@ -137,16 +144,25 @@ export class TelegramInterface {
               await fetch(`${apiBase}/getUpdates?offset=${lastId + 1}&timeout=0&limit=1`);
             }
             
+            // Additional settle time after flush
             await new Promise(r => setTimeout(r, 3000));
             this.bot.startPolling();
             console.log('🔄 Re-started polling after lock release');
-          } catch {} finally {
+
+            // Reset counter — if the next poll works, we're good
+            conflict409Count = 0;
+          } catch (retryErr) {
+            console.warn(`   ⚠️ Recovery attempt failed: ${retryErr.message || retryErr}`);
+          } finally {
             isRetrying409 = false;
           }
         }
 
-        if (conflict409Count >= 10) {
-          console.error('❌ Persistent 409 Conflict. Run: pkill -f "node cli.js" && sleep 5 && jarvis --telegram');
+        if (conflict409Count > 3) {
+          console.error('❌ Persistent 409 Conflict. Another bot instance is running.');
+          console.error('   Fix: pkill -f "node cli.js" && sleep 5 && jarvis --telegram');
+          // Stop retrying — manual intervention needed
+          this.bot.stopPolling();
         }
       } else if (msg.includes('ETIMEDOUT') || msg.includes('ECONNRESET') || msg.includes('ENOTFOUND')) {
         // Network issues — silent, they auto-recover

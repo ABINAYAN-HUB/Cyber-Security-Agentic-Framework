@@ -1,5 +1,5 @@
-// OpenClaw Cyber — Persistent Memory System (SQLite)
-// Enhanced with full operation logging, threat intel, FOFA cache, and auto-learning storage
+// Jarvis Cyber — Persistent Memory System (SQLite)
+// Enhanced with full operation logging, threat intel, FOFA cache, auto-learning, and dynamic strategy storage
 import Database from 'better-sqlite3';
 import config from './config.js';
 import { existsSync, mkdirSync } from 'fs';
@@ -283,6 +283,37 @@ class Memory {
       );
       CREATE INDEX IF NOT EXISTS idx_tk_name ON tool_knowledge(tool_name);
       CREATE INDEX IF NOT EXISTS idx_tk_category ON tool_knowledge(category);
+
+      -- ═══════════════════════════════════════════
+      -- DYNAMIC STRATEGIES — AI-generated attack plans
+      -- ═══════════════════════════════════════════
+      CREATE TABLE IF NOT EXISTS strategies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        target TEXT NOT NULL,
+        objective TEXT NOT NULL,
+        attack_framework TEXT,
+        phase TEXT,
+        strategy TEXT NOT NULL,
+        tools_used TEXT,
+        success INTEGER DEFAULT 0,
+        notes TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_strat_target ON strategies(target);
+
+      -- ═══════════════════════════════════════════
+      -- INSTALLED TOOLS — Dynamic tool installation log
+      -- ═══════════════════════════════════════════
+      CREATE TABLE IF NOT EXISTS installed_tools (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tool_name TEXT UNIQUE NOT NULL,
+        install_method TEXT,
+        install_source TEXT,
+        version TEXT,
+        install_path TEXT,
+        installed_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_it_name ON installed_tools(tool_name);
     `);
   }
 

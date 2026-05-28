@@ -17,7 +17,7 @@ export const definition = {
         },
         timeout_ms: {
           type: 'integer',
-          description: 'Optional timeout in milliseconds (default: 30000)'
+          description: 'Optional timeout in milliseconds (default: 600000 = 10 minutes). Use higher values for nmap -sV, nuclei, dirb, etc.'
         },
         background: {
           type: 'boolean',
@@ -30,9 +30,18 @@ export const definition = {
 };
 
 export async function execute(args, cwd) {
-  const { command, timeout_ms } = args;
-  const timeout = timeout_ms || 300000; // 5 minutes default (critical for nmap, dirb, etc)
+  let { command, timeout_ms } = args;
+  const timeout = timeout_ms || 600000; // 10 minutes default (critical for nmap -sV -sC, nuclei, dirb, etc)
   const isWindows = platform() === 'win32';
+
+  // ═══ SUDO NON-INTERACTIVE FIX ═══
+  // Force all sudo commands to use -n (non-interactive) mode so they NEVER hang
+  // waiting for a password prompt in headless environments (Telegram bot, daemon, etc.)
+  // If passwordless sudo is configured (/etc/sudoers.d/jarvis-nopasswd), -n is a no-op.
+  // If NOT configured, the command fails instantly with a clear error instead of timing out.
+  if (!isWindows) {
+    command = command.replace(/\bsudo\b(?!\s+-[nSAkKp])/g, 'sudo -n');
+  }
   
   return new Promise((resolve) => {
     let shell = isWindows ? 'powershell.exe' : '/bin/bash';
@@ -45,6 +54,7 @@ export async function execute(args, cwd) {
       TERM: 'dumb',           // Prevents tools from trying to use advanced terminal features
       DEBIAN_FRONTEND: 'noninteractive', // Prevents apt/dpkg from prompting
       PAGER: 'cat',           // Prevents tools from halting output to page
+      SUDO_ASKPASS: '/bin/false',  // Prevents sudo from launching a GUI password dialog
       PATH: currentPath.includes(`${home}/go/bin`) ? currentPath : `${home}/go/bin:${currentPath}`,
     };
     
@@ -170,12 +180,24 @@ export async function execute(args, cwd) {
       }
 
       if (code !== 0) {
+        // ═══ SUDO PASSWORD FAILURE DETECTION ═══
+        // If sudo -n failed because no password-less access is configured, provide
+        // a clear error so the AI agent can adapt (retry without sudo, or inform the user)
+        const isSudoAuthFailure = errStr.includes('a password is required') || 
+                                   errStr.includes('sudo: a terminal is required') ||
+                                   errStr.includes('no askpass program specified');
+        const sudoError = isSudoAuthFailure 
+          ? 'SUDO AUTH FAILED: Password required but running in non-interactive mode. ' +
+            'Either: (1) retry the command without sudo if the tool does not strictly need root, ' +
+            'or (2) tell the user to run: echo "blackhat ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/jarvis-nopasswd && sudo chmod 440 /etc/sudoers.d/jarvis-nopasswd'
+          : null;
+
         resolve({
           success: false,
           exit_code: code,
           stdout: outStr || '(no output)',
-          stderr: errStr || `Process exited with code ${code}`,
-          error: `Process exited with code ${code}`,
+          stderr: sudoError || errStr || `Process exited with code ${code}`,
+          error: sudoError || `Process exited with code ${code}`,
           command,
         });
         return;

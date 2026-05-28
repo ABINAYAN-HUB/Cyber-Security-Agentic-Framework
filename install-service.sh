@@ -1,87 +1,75 @@
 #!/bin/bash
-# OpenClaw Cyber — Systemd Service Installer
-# Installs OpenClaw as a user service that auto-starts on boot
+# Jarvis Cyber — Systemd Service Installer
+# Installs Jarvis as a user service that auto-starts on boot
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SERVICE_DIR="$HOME/.config/systemd/user"
-SERVICE_FILE="$SERVICE_DIR/jarvis.service"
-NODE_PATH=$(command -v node)
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
 
-echo "🐉 OpenClaw Cyber — Service Installer"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🐉 Jarvis Cyber — Service Installer"
+echo "======================================"
 
-# Check Node.js
-if [ -z "$NODE_PATH" ]; then
-    echo "❌ Node.js not found. Install Node.js 18+ first."
+# Check for node
+if ! command -v node &> /dev/null; then
+    echo -e "${RED}Error: Node.js not found. Please install Node.js >= 18.${NC}"
     exit 1
 fi
 
-echo "✅ Node.js: $NODE_PATH"
-echo "📁 Project: $SCRIPT_DIR"
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Create systemd user directory
-mkdir -p "$SERVICE_DIR"
+mkdir -p ~/.config/systemd/user
 
-# Create the service file
-cat > "$SERVICE_FILE" << EOF
+# Write service file
+cat > ~/.config/systemd/user/jarvis-cyber.service << EOF
 [Unit]
-Description=OpenClaw Cyber — Autonomous AI Cybersecurity Agent
-Documentation=https://github.com/openclaw/openclaw-cyber
-After=network-online.target
-Wants=network-online.target
+Description=Jarvis Cyber — Autonomous AI Cybersecurity Agent
+Documentation=https://github.com/ABINAYAN-HUB/Jarvis-Cyber
+After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=$SCRIPT_DIR
-ExecStart=$NODE_PATH $SCRIPT_DIR/cli.js --daemon
+WorkingDirectory=${SCRIPT_DIR}
+ExecStart=$(which node) ${SCRIPT_DIR}/cli.js --daemon
 Restart=always
-RestartSec=10
-StandardOutput=append:$HOME/.jarvis/daemon.log
-StandardError=append:$HOME/.jarvis/daemon-error.log
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
 Environment=NODE_ENV=production
-Environment=PDCP_API_KEY=\${PDCP_API_KEY:-}
-Environment=PATH=$HOME/go/bin:$PATH
-
-# Resource limits
-LimitNOFILE=65536
-MemoryMax=512M
 
 [Install]
 WantedBy=default.target
 EOF
 
-echo "✅ Service file created: $SERVICE_FILE"
-
-# Create log directory
-mkdir -p "$HOME/.jarvis"
+echo -e "${GREEN}✅ Service file created at ~/.config/systemd/user/jarvis-cyber.service${NC}"
 
 # Reload systemd
 systemctl --user daemon-reload
-echo "✅ Systemd reloaded"
 
-# Enable the service (auto-start on boot)
-systemctl --user enable jarvis.service
-echo "✅ Service enabled (will auto-start on boot)"
-
-# Enable lingering (keeps services running even when not logged in)
-loginctl enable-linger "$USER" 2>/dev/null || true
-echo "✅ Lingering enabled (runs even when logged out)"
-
-# Start the service now
-systemctl --user start jarvis.service
-echo "✅ Service started"
+# Enable and start
+systemctl --user enable jarvis-cyber.service
+systemctl --user start jarvis-cyber.service
 
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🐉 OpenClaw Cyber is now running as a background service!"
+echo -e "${GREEN}✅ Service started and enabled!${NC}"
 echo ""
-echo "  Status:  systemctl --user status jarvis"
-echo "  Logs:    journalctl --user -u jarvis -f"
-echo "  Stop:    systemctl --user stop jarvis"
-echo "  Restart: systemctl --user restart jarvis"
-echo "  Disable: systemctl --user disable jarvis"
+echo "Useful commands:"
+echo "  systemctl --user status jarvis-cyber    # Check status"
+echo "  systemctl --user stop jarvis-cyber      # Stop"
+echo "  systemctl --user restart jarvis-cyber   # Restart"
+echo "  journalctl --user -u jarvis-cyber -f    # View logs"
 echo ""
-echo "  Log file: $HOME/.jarvis/daemon.log"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Enable lingering so service runs even when user is not logged in
+if command -v loginctl &> /dev/null; then
+    loginctl enable-linger $(whoami) 2>/dev/null || true
+    echo -e "${GREEN}✅ Lingering enabled — service will persist across logouts${NC}"
+fi
+
+echo ""
+echo "🐉 Jarvis Cyber is now running as a background service!"
+echo "   Add tasks to ${SCRIPT_DIR}/HEARTBEAT.md and they'll be executed automatically."

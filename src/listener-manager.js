@@ -3,21 +3,63 @@ import net from 'net';
 
 class ListenerManager {
   constructor() {
-    this.listeners = new Map(); // port -> { server, socket, output }
+    this.listeners = new Map(); // port -> { server, socket, output, managedByAgent }
   }
 
   /**
-   * Starts a TCP listener that captures a reverse shell connection
+   * Dynamically probe a port to check if something is already listening on it.
+   * Returns true if the port is occupied (e.g. user's nc), false if it's free.
+   */
+  async _isPortOccupied(port) {
+    return new Promise((resolve) => {
+      const probe = new net.Socket();
+      probe.setTimeout(1500);
+      probe.once('connect', () => {
+        probe.destroy();
+        resolve(true);
+      });
+      probe.once('timeout', () => {
+        probe.destroy();
+        resolve(false);
+      });
+      probe.once('error', () => {
+        probe.destroy();
+        resolve(false);
+      });
+      probe.connect(port, '127.0.0.1');
+    });
+  }
+
+  /**
+   * Starts a TCP listener that captures a reverse shell connection.
+   * Dynamically detects if the port is already occupied (e.g. user's nc listener)
+   * and returns guidance instead of conflicting.
    */
   async startListener(port, force = false) {
     if (this.listeners.has(port)) {
       if (!force) {
         const existing = this.listeners.get(port);
         if (existing.server && existing.server.listening) {
-          return { success: true, message: `Listener already active on port ${port}`, status: 'listening' };
+          return { success: true, message: `Listener already active on port ${port}`, status: 'listening', managedByAgent: true };
         }
       }
       this.stopListener(port); // Cleanup
+    }
+
+    // ── DYNAMIC PORT CONFLICT DETECTION ──
+    // Check if something else (like the user's nc -lvp) is already on this port
+    const occupied = await this._isPortOccupied(port);
+    if (occupied && !force) {
+      return {
+        success: false,
+        already_in_use: true,
+        port,
+        error: `Port ${port} is ALREADY IN USE — likely the user's own listener (nc -lvp ${port}).`,
+        guidance: `DO NOT start an internal listener. The user already has a listener running on port ${port}. `
+          + `Just send the reverse shell payload to the target machine and it will connect DIRECTLY to the user's terminal. `
+          + `Use execute_command to send the payload via the target's bindshell/exploit. `
+          + `After sending, tell the user to check their nc terminal for the incoming connection.`
+      };
     }
 
     return new Promise((resolve) => {
@@ -25,7 +67,8 @@ class ListenerManager {
         server: null,
         socket: null,
         output: '',
-        status: 'starting'
+        status: 'starting',
+        managedByAgent: true
       };
 
       const server = net.createServer((socket) => {
@@ -139,6 +182,7 @@ class ListenerManager {
     return {
       status: state.status,
       connected: !!state.socket,
+      managedByAgent: state.managedByAgent || false,
       output: state.output
     };
   }

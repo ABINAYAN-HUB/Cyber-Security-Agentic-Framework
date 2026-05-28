@@ -33,7 +33,7 @@ export async function execute(args) {
   
   const headers = {
     'Accept': 'application/vnd.github.v3+json',
-    'User-Agent': 'OpenClaw-Cyber-Agent/1.0'
+    'User-Agent': 'Jarvis-Cyber-Agent/3.0'
   };
 
   if (process.env.GITHUB_TOKEN) {

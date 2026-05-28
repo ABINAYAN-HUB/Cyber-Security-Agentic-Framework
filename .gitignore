@@ -8,18 +8,21 @@ node_modules/
 *.db
 *.db-shm
 *.db-wal
+jarvis-memory.db
 openclaw-memory.db
 
 # ═══ Output ═══
-openclaw-output/
 jarvis-output/
+openclaw-output/
 
 # ═══ Runtime ═══
 .subagents/
 *.log
 *.pid
 HEARTBEAT.md
+.jarvis-bot.pid
 .openclaw-bot.pid
+jarvis-tools/
 
 # ═══ OS ═══
 .DS_Store

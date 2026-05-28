@@ -1,9 +1,10 @@
 // Jarvis Cyber — Skills Manager
-// Dynamically loads skill definitions from the skills/ directory
+// Loads user-created custom skills from skills/ + delegates to Dynamic Skill Engine
 import { existsSync, readdirSync, readFileSync, mkdirSync } from 'fs';
 import { join, basename } from 'path';
 import config from './config.js';
 import { memory } from './memory.js';
+import { dynamicSkills } from './dynamic-skills.js';
 
 class SkillsManager {
   constructor() {
@@ -97,15 +98,23 @@ class SkillsManager {
   }
 
   getSkillsContext() {
-    if (this.skills.size === 0) return '';
-    
-    let ctx = '\n\n## Loaded Skills\n';
-    for (const [name, skill] of this.skills) {
-      ctx += `- **${name}**: ${skill.description}\n`;
-      if (skill.scripts.length > 0) {
-        ctx += `  Scripts: ${skill.scripts.map(s => basename(s)).join(', ')}\n`;
+    // Dynamic skills context from the AI engine (replaces hardcoded skill listing)
+    let ctx = '';
+    try {
+      ctx = dynamicSkills.getSkillsContext();
+    } catch {}
+
+    // Append any user-created custom skills
+    if (this.skills.size > 0) {
+      ctx += '\n\n### Custom User Skills (from skills/ directory)\n';
+      for (const [name, skill] of this.skills) {
+        ctx += `- **${name}**: ${skill.description}\n`;
+        if (skill.scripts.length > 0) {
+          ctx += `  Scripts: ${skill.scripts.map(s => basename(s)).join(', ')}\n`;
+        }
       }
     }
+
     return ctx;
   }
 }

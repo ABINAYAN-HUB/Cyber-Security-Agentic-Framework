@@ -5,6 +5,7 @@ import { buildSystemPrompt } from './system-prompt.js';
 import config from './config.js';
 import * as ui from './ui.js';
 import { memory } from './memory.js';
+import { toolInstaller } from './tool-installer.js';
 import { exec as _exec } from 'child_process';
 
 export class Agent {
@@ -338,6 +339,31 @@ export class Agent {
       
       this.consecutiveFailures++;
       this.failedToolSignatures[signature] = (this.failedToolSignatures[signature] || 0) + 1;
+
+      // ═══ DYNAMIC ERROR SELF-HEALING ═══
+      // If the error is a missing tool/module, auto-install and notify AI to retry
+      const errorMsg = error.message || '';
+      const selfHealResult = toolInstaller.resolveFromError(errorMsg);
+      
+      if (selfHealResult && selfHealResult.success) {
+        // Successfully auto-installed the missing dependency
+        if (!this.isSubagent) {
+          console.log(ui.colors.success(`     ⚡ [SELF-HEAL] Auto-installed missing dependency via ${selfHealResult.method}`));
+        }
+        // Clear failure signatures so the AI can retry the same command
+        this.consecutiveFailures = Math.max(0, this.consecutiveFailures - 1);
+        delete this.failedToolSignatures[signature];
+        
+        const healResult = { 
+          success: false, 
+          error: error.message,
+          self_heal: `SYSTEM: Missing dependency was AUTO-INSTALLED via ${selfHealResult.method}. You can now RETRY this exact command — it should work now.`
+        };
+        this._addToolResult(toolCall.id, name, healResult);
+        if (!this.isSubagent) ui.printToolResult(name, healResult);
+        if (onTool) onTool({ type: 'done', name, args, result: healResult });
+        return;
+      }
 
       const errorResult = { success: false, error: error.message };
       this._addToolResult(toolCall.id, name, errorResult);

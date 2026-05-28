@@ -1,4 +1,4 @@
-// OpenClaw Cyber — Auto-Learning Cyber Intelligence Engine
+// Jarvis Cyber — Auto-Learning Cyber Intelligence Engine
 // Automatically fetches CVEs, exploits, threat intel, and tool knowledge from the internet
 // Runs 24/7 — every 30 minutes when OS is on
 import { memory } from './memory.js';

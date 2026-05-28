@@ -1,5 +1,5 @@
 // Jarvis Cyber — Configuration
-// Powered by NVIDIA NIM API — Z-AI GLM5
+// Powered by NVIDIA NIM API — Z-AI GLM 5.1
 import dotenv from 'dotenv';
 import { join, dirname } from 'path';
 import { existsSync, mkdirSync } from 'fs';
@@ -29,7 +29,7 @@ if (existsSync(cwdEnv)) {
 
 // ═══ Data Directory ═══
 const isGlobalInstall = process.cwd() !== packageDir && !existsSync(join(process.cwd(), 'package.json'));
-const dataDir = isGlobalInstall ? join(homedir(), '.openclaw') : process.cwd();
+const dataDir = isGlobalInstall ? join(homedir(), '.jarvis') : process.cwd();
 
 if (isGlobalInstall && !existsSync(dataDir)) {
   mkdirSync(dataDir, { recursive: true });
@@ -53,7 +53,7 @@ const config = {
   // ═══ NVIDIA NIM API ═══
   baseUrl: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
   apiKey: process.env.NVIDIA_API_KEY || '',
-  model: process.env.NVIDIA_MODEL || 'z-ai/glm5',
+  model: process.env.NVIDIA_MODEL || 'z-ai/glm-5.1',
 
   // ═══ Generation Settings ═══
   temperature: 0.4,
@@ -82,9 +82,9 @@ const config = {
   // ═══ Directories & Paths ═══
   packageDir,
   dataDir,
-  outputDir: process.env.OUTPUT_DIR || join(dataDir, 'openclaw-output'),
+  outputDir: process.env.OUTPUT_DIR || join(dataDir, 'jarvis-output'),
   skillsDir: join(packageDir, 'skills'),
-  memoryDbPath: join(dataDir, 'openclaw-memory.db'),
+  memoryDbPath: join(dataDir, 'jarvis-memory.db'),
 
   // ═══ Heartbeat / Daemon ═══
   heartbeatCron: process.env.HEARTBEAT_CRON || '*/30 * * * *',

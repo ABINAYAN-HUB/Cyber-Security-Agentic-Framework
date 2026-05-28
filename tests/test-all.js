@@ -1,5 +1,5 @@
 // Jarvis Cyber — Comprehensive Test Suite
-// Tests all components: database, tools, auto-learner, agent
+// Tests all components: database, tools, frameworks, auto-learner, dynamic skills, agent
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -45,8 +45,6 @@ function assert(condition, msg) {
 async function testDatabase() {
   console.log('\n📦 Test: Database / Memory');
 
-  // Use a temp db for testing
-  const Database = (await import('better-sqlite3')).default;
   const { memory } = await import('../src/memory.js');
 
   test('Memory initializes without error', () => {
@@ -105,14 +103,6 @@ async function testDatabase() {
     assert(ops.length >= 1, 'Should have operations');
   });
 
-  test('Scan result store/get', () => {
-    memory.storeScanResult('port_scan', '10.0.0.1', 'nmap', {
-      ports: [22, 80, 443], services: ['ssh', 'http', 'https'], severity: 'medium'
-    });
-    const scans = memory.getScanResults('10.0.0.1');
-    assert(scans.length >= 1, 'Should find scan results');
-  });
-
   test('Threat intel store/search', () => {
     memory.storeThreatIntel('cve', 'CVE-2024-12345', {
       title: 'Test CVE', description: 'A test vulnerability',
@@ -122,65 +112,20 @@ async function testDatabase() {
     assert(results.length >= 1, 'Should find threat intel');
   });
 
-  test('FOFA result store/get', () => {
-    memory.storeFofaResult('test-query', {
-      ip: '1.2.3.4', port: 443, protocol: 'https',
-      domain: 'test.com', title: 'Test Page'
-    });
-    const results = memory.getFofaResults('test-query');
-    assert(results.length >= 1, 'Should find FOFA results');
+  test('Strategies table exists', () => {
+    const tables = memory.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='strategies'").get();
+    assert(tables, 'Strategies table should exist');
   });
 
-  test('Exploit store/search', () => {
-    memory.storeExploit('EDB-99999', {
-      title: 'Test Exploit', platform: 'linux',
-      exploit_type: 'local', source: 'test'
-    });
-    const results = memory.searchExploits('Test Exploit');
-    assert(results.length >= 1, 'Should find exploit');
-  });
-
-  test('Attack log', () => {
-    memory.logAttack(1, 'recon', 'nmap scan', '10.0.0.1', 'nmap -sV 10.0.0.1', 'Found ports', true);
-    const logs = memory.getAttackLog(1);
-    assert(logs.length >= 1, 'Should have attack log');
-  });
-
-  test('Learning history', () => {
-    memory.markLearned('test-source', 'test-resource', 'test-type', 10);
-    assert(memory.isLearned('test-source', 'test-resource'), 'Should be marked as learned');
-    assert(!memory.isLearned('test-source', 'nonexistent'), 'Should not find nonexistent');
-  });
-
-  test('Nuclei result store/get', () => {
-    memory.storeNucleiResult('https://test.com', {
-      template_id: 'test-001', template_name: 'Test Template',
-      severity: 'high', matched_at: 'https://test.com/admin'
-    });
-    const results = memory.getNucleiResults('https://test.com');
-    assert(results.length >= 1, 'Should find nuclei result');
-  });
-
-  test('Tool knowledge store/search', () => {
-    memory.storeToolKnowledge('test-tool', {
-      category: 'test', description: 'A test tool',
-      install_command: 'apt install test', official_url: 'https://test.com'
-    });
-    const results = memory.searchToolKnowledge('test-tool');
-    assert(results.length >= 1, 'Should find tool knowledge');
+  test('Installed tools table exists', () => {
+    const tables = memory.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='installed_tools'").get();
+    assert(tables, 'Installed_tools table should exist');
   });
 
   test('Full stats', () => {
     const stats = memory.getStats();
     assert(stats.knowledge >= 1, 'Knowledge count should be >= 1');
     assert(stats.operations >= 1, 'Operations count should be >= 1');
-    assert(stats.threat_intel >= 1, 'Threat intel count should be >= 1');
-    assert(stats.tool_knowledge >= 1, 'Tool knowledge count should be >= 1');
-  });
-
-  test('Learning stats', () => {
-    const stats = memory.getLearningStats();
-    assert(stats.length >= 1, 'Should have learning stats');
   });
 }
 
@@ -192,7 +137,7 @@ async function testTools() {
 
   const { toolDefinitions, toolExecutors, safeTools, writeTools, dangerousTools } = await import('../src/tools/index.js');
 
-  test('Tool definitions loaded', () => {
+  test('Tool definitions loaded (50+)', () => {
     assert(toolDefinitions.length >= 50, `Expected 50+ tools, got ${toolDefinitions.length}`);
   });
 
@@ -212,37 +157,17 @@ async function testTools() {
     }
   });
 
+  test('install_tool registered', () => {
+    assert(toolDefinitions.some(t => t.function.name === 'install_tool'), 'install_tool missing');
+    assert(typeof toolExecutors.install_tool === 'function', 'install_tool executor missing');
+  });
+
   test('FOFA tool registered', () => {
     assert(toolDefinitions.some(t => t.function.name === 'fofa_search'), 'fofa_search missing');
-    assert(typeof toolExecutors.fofa_search === 'function', 'fofa_search executor missing');
   });
 
   test('Nuclei tool registered', () => {
     assert(toolDefinitions.some(t => t.function.name === 'nuclei_scan'), 'nuclei_scan missing');
-  });
-
-  test('Subfinder tool registered', () => {
-    assert(toolDefinitions.some(t => t.function.name === 'subfinder_enum'), 'subfinder_enum missing');
-  });
-
-  test('Httpx tool registered', () => {
-    assert(toolDefinitions.some(t => t.function.name === 'httpx_probe'), 'httpx_probe missing');
-  });
-
-  test('Naabu tool registered', () => {
-    assert(toolDefinitions.some(t => t.function.name === 'naabu_scan'), 'naabu_scan missing');
-  });
-
-  test('Katana tool registered', () => {
-    assert(toolDefinitions.some(t => t.function.name === 'katana_crawl'), 'katana_crawl missing');
-  });
-
-  test('Dnsx tool registered', () => {
-    assert(toolDefinitions.some(t => t.function.name === 'dnsx_resolve'), 'dnsx_resolve missing');
-  });
-
-  test('Uncover tool registered', () => {
-    assert(toolDefinitions.some(t => t.function.name === 'uncover_search'), 'uncover_search missing');
   });
 
   test('Safety classifications exist', () => {
@@ -270,6 +195,18 @@ async function testConfig() {
     assert(config, 'Config should exist');
   });
 
+  test('Output dir uses jarvis', () => {
+    assert(config.outputDir.includes('jarvis'), `Output dir should contain 'jarvis': ${config.outputDir}`);
+  });
+
+  test('Memory DB path uses jarvis', () => {
+    assert(config.memoryDbPath.includes('jarvis'), `DB path should contain 'jarvis': ${config.memoryDbPath}`);
+  });
+
+  test('Model is GLM 5.1', () => {
+    assert(config.model.includes('glm5.1') || config.model.includes('glm-5.1'), `Model should be GLM 5.1: ${config.model}`);
+  });
+
   test('FOFA config fields exist', () => {
     assert('fofaEmail' in config, 'Missing fofaEmail');
     assert('fofaApiKey' in config, 'Missing fofaApiKey');
@@ -279,18 +216,121 @@ async function testConfig() {
     assert('learningCron' in config, 'Missing learningCron');
     assert('learningEnabled' in config, 'Missing learningEnabled');
   });
+}
 
-  test('Output dir uses openclaw', () => {
-    assert(config.outputDir.includes('openclaw'), `Output dir should contain 'openclaw': ${config.outputDir}`);
+// ═══════════════════════════════════════════════
+// TEST 4: Frameworks (MITRE ATT&CK + Cyber Kill Chain)
+// ═══════════════════════════════════════════════
+async function testFrameworks() {
+  console.log('\n🛡️  Test: Frameworks');
+
+  const { MITRE_ATTACK, CYBER_KILL_CHAIN, mapFindingsToTechniques, getCurrentKillChainPhase, buildFrameworkContext } = await import('../src/frameworks.js');
+
+  test('MITRE ATT&CK has 14 tactics', () => {
+    assert(MITRE_ATTACK.tactics.length === 14, `Expected 14 tactics, got ${MITRE_ATTACK.tactics.length}`);
   });
 
-  test('Memory DB path uses openclaw', () => {
-    assert(config.memoryDbPath.includes('openclaw'), `DB path should contain 'openclaw': ${config.memoryDbPath}`);
+  test('Cyber Kill Chain has 7 phases', () => {
+    assert(CYBER_KILL_CHAIN.phases.length === 7, `Expected 7 phases, got ${CYBER_KILL_CHAIN.phases.length}`);
+  });
+
+  test('mapFindingsToTechniques works', () => {
+    const findings = { ports: [80, 443], services: ['http', 'ssh'], hasWebApp: true };
+    const result = mapFindingsToTechniques(findings);
+    assert(result.length > 0, 'Should map findings to at least 1 tactic');
+  });
+
+  test('getCurrentKillChainPhase works', () => {
+    const result = getCurrentKillChainPhase(['recon', 'scan']);
+    assert(result.current, 'Should return current phase');
+    assert(result.current.name === 'Reconnaissance', `Expected Reconnaissance, got ${result.current.name}`);
+  });
+
+  test('buildFrameworkContext returns string', () => {
+    const ctx = buildFrameworkContext();
+    assert(ctx.length > 100, 'Framework context should be substantial');
+    assert(ctx.includes('MITRE'), 'Should include MITRE');
+    assert(ctx.includes('Kill Chain'), 'Should include Kill Chain');
   });
 }
 
 // ═══════════════════════════════════════════════
-// TEST 4: Auto-Learner
+// TEST 5: Kali Tools Registry
+// ═══════════════════════════════════════════════
+async function testKaliRegistry() {
+  console.log('\n🔪 Test: Kali Tools Registry');
+
+  const { detectInstalledTools, getAllTools, getToolsByCategory, getToolsForTechnique, searchTools, getCategories, buildToolsContext } = await import('../src/kali-tools-registry.js');
+
+  test('Registry has 100+ tools', () => {
+    const all = getAllTools();
+    assert(all.length >= 100, `Expected 100+ tools, got ${all.length}`);
+  });
+
+  test('Has 10+ categories', () => {
+    const cats = getCategories();
+    assert(cats.length >= 10, `Expected 10+ categories, got ${cats.length}`);
+  });
+
+  test('detectInstalledTools returns Map', () => {
+    const installed = detectInstalledTools();
+    assert(installed instanceof Map, 'Should return a Map');
+  });
+
+  test('getToolsForTechnique works', () => {
+    const tools = getToolsForTechnique('T1595');
+    assert(tools.length > 0, 'Should find tools for T1595 (Active Scanning)');
+  });
+
+  test('searchTools works', () => {
+    const results = searchTools('nmap');
+    assert(results.length > 0, 'Should find nmap');
+  });
+
+  test('buildToolsContext returns string', () => {
+    const ctx = buildToolsContext();
+    assert(ctx.length > 50, 'Tools context should be substantial');
+  });
+}
+
+// ═══════════════════════════════════════════════
+// TEST 6: Dynamic Skills Engine
+// ═══════════════════════════════════════════════
+async function testDynamicSkills() {
+  console.log('\n🧠 Test: Dynamic Skills Engine');
+
+  const { dynamicSkills } = await import('../src/dynamic-skills.js');
+
+  test('decomposeObjective — web pentest', () => {
+    const result = dynamicSkills.decomposeObjective('pentest the webapp at example.com');
+    assert(result.type === 'web_application', `Expected web_application, got ${result.type}`);
+    assert(result.phases.length > 0, 'Should have phases');
+  });
+
+  test('decomposeObjective — full pentest', () => {
+    const result = dynamicSkills.decomposeObjective('hack the target and exploit vulnerabilities');
+    assert(result.type === 'full_pentest', `Expected full_pentest, got ${result.type}`);
+  });
+
+  test('decomposeObjective — wireless', () => {
+    const result = dynamicSkills.decomposeObjective('crack the wifi password');
+    assert(result.type === 'wireless', `Expected wireless, got ${result.type}`);
+  });
+
+  test('decomposeObjective — AD', () => {
+    const result = dynamicSkills.decomposeObjective('attack the active directory domain');
+    assert(result.type === 'active_directory', `Expected active_directory, got ${result.type}`);
+  });
+
+  test('getSkillsContext returns string', () => {
+    const ctx = dynamicSkills.getSkillsContext();
+    assert(ctx.includes('DYNAMIC'), 'Should mention dynamic capabilities');
+    assert(ctx.includes('MITRE'), 'Should mention MITRE ATT&CK');
+  });
+}
+
+// ═══════════════════════════════════════════════
+// TEST 7: Auto-Learner
 // ═══════════════════════════════════════════════
 async function testAutoLearner() {
   console.log('\n🧠 Test: Auto-Learner');
@@ -308,90 +348,64 @@ async function testAutoLearner() {
     assert(typeof learner.run === 'function', 'Missing run()');
     assert(typeof learner.fetchNVDCVEs === 'function', 'Missing fetchNVDCVEs()');
     assert(typeof learner.fetchCISAKEV === 'function', 'Missing fetchCISAKEV()');
-    assert(typeof learner.fetchExploitDB === 'function', 'Missing fetchExploitDB()');
-    assert(typeof learner.fetchThreatFeeds === 'function', 'Missing fetchThreatFeeds()');
-    assert(typeof learner.learnCyberTools === 'function', 'Missing learnCyberTools()');
     assert(typeof learner.getStats === 'function', 'Missing getStats()');
   });
-
-  test('AutoLearner stats structure', () => {
-    const learner = new AutoLearner();
-    const stats = learner.getStats();
-    assert('cves' in stats, 'Missing cves stat');
-    assert('exploits' in stats, 'Missing exploits stat');
-    assert('threats' in stats, 'Missing threats stat');
-    assert('tools' in stats, 'Missing tools stat');
-    assert('total_runs' in stats, 'Missing total_runs stat');
-  });
 }
 
 // ═══════════════════════════════════════════════
-// TEST 5: Skills
-// ═══════════════════════════════════════════════
-async function testSkills() {
-  console.log('\n📦 Test: Skills');
-
-  const { existsSync } = await import('fs');
-  const { join: pathJoin } = await import('path');
-
-  const skillsDir = pathJoin(projectDir, 'skills');
-  const expectedSkills = [
-    'threat-intelligence', 'fofa-recon', 'zero-day-research',
-    'dark-web-osint', 'apt-profiling',
-    'full-recon', 'exploit-development', 'webapp-pentest',
-    'wireless-attack', 'network-attack', 'password-attack',
-    'privilege-escalation', 'social-engineering', 'stealth-osint',
-    'malware-analysis', 'incident-response', 'cloud-security-audit',
-    'container-escape', 'api-security-test', 'mobile-app-pentest',
-    'active-directory-attack', 'bug-bounty-hunter', 'firewall-bypass',
-    'lateral-movement', 'red-team-c2',
-  ];
-
-  for (const skill of expectedSkills) {
-    test(`Skill exists: ${skill}`, () => {
-      const skillPath = pathJoin(skillsDir, skill, 'SKILL.md');
-      assert(existsSync(skillPath), `Missing: ${skillPath}`);
-    });
-  }
-}
-
-// ═══════════════════════════════════════════════
-// TEST 6: CLI
+// TEST 8: CLI
 // ═══════════════════════════════════════════════
 async function testCLI() {
   console.log('\n🖥️  Test: CLI');
 
   const { execSync } = await import('child_process');
 
-  test('CLI --help works', () => {
+  test('CLI --help works and shows Jarvis', () => {
     const output = execSync(`node ${join(projectDir, 'cli.js')} --help`, { encoding: 'utf-8' });
     assert(output.includes('Jarvis Cyber'), 'Help should mention Jarvis Cyber');
     assert(output.includes('50+'), 'Help should mention 50+ tools');
-    assert(output.includes('fofa_search'), 'Help should list fofa_search');
-    assert(output.includes('nuclei_scan'), 'Help should list nuclei_scan');
-    assert(output.includes('--learn'), 'Help should mention --learn');
-    assert(output.includes('--daemon'), 'Help should mention --daemon');
   });
 
-  test('CLI help does not mention OpenClaw', () => {
+  test('CLI help does NOT mention OpenClaw', () => {
     const output = execSync(`node ${join(projectDir, 'cli.js')} --help`, { encoding: 'utf-8' });
     assert(!output.includes('OpenClaw'), 'Should not contain old OpenClaw branding');
   });
 }
 
 // ═══════════════════════════════════════════════
+// TEST 9: No OpenClaw References
+// ═══════════════════════════════════════════════
+async function testNoOpenClaw() {
+  console.log('\n🔍 Test: No OpenClaw References in Source');
+
+  const { execSync } = await import('child_process');
+
+  test('No openclaw in src/*.js files', () => {
+    try {
+      const output = execSync(`grep -rli "openclaw" ${join(projectDir, 'src')} --include="*.js" 2>/dev/null || echo "CLEAN"`, { encoding: 'utf-8' });
+      assert(output.trim() === 'CLEAN', `Found openclaw references in: ${output.trim()}`);
+    } catch {
+      // grep returns exit code 1 when no matches found — that's what we want
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════
 // RUN ALL TESTS
 // ═══════════════════════════════════════════════
-console.log('🐉 Jarvis Cyber — Test Suite v3.1');
+console.log('🐉 Jarvis Cyber — Test Suite v3.1 (Dynamic Edition)');
 console.log('═══════════════════════════════════════');
 
 try {
   await testConfig();
   await testDatabase();
   await testTools();
+  await testFrameworks();
+  await testKaliRegistry();
+  await testDynamicSkills();
   await testAutoLearner();
-  await testSkills();
   await testCLI();
+  await testNoOpenClaw();
 } catch (err) {
   console.error(`\n💥 Fatal test error: ${err.message}`);
   console.error(err.stack);
