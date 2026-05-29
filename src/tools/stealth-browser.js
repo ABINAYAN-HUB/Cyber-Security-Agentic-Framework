@@ -1,6 +1,8 @@
-// Jarvis Cyber — Stealth Browser Tool
+// Jarvis Cyber v4.0 — Stealth Browser Tool
 // Headless Puppeteer-based browser with anti-detection measures
+// v4.0: Dialog handler, proxy-aware, configurable security
 import config from '../config.js';
+import { toolBridge } from '../tool-bridge.js';
 
 export const definition = {
   type: 'function',
@@ -18,7 +20,8 @@ export const definition = {
         wait_ms: { type: 'integer', description: 'Wait time after page load in ms (default: 3000)' },
         proxy: { type: 'string', description: 'Proxy URL (e.g., "socks5://127.0.0.1:9050" for Tor)' },
         user_agent: { type: 'string', description: 'Custom User-Agent string' },
-        wait_until: { type: 'string', enum: ['load', 'domcontentloaded', 'networkidle0', 'networkidle2'], description: 'Puppeteer waitUntil condition (default: networkidle2)' }
+        wait_until: { type: 'string', enum: ['load', 'domcontentloaded', 'networkidle0', 'networkidle2'], description: 'Puppeteer waitUntil condition (default: domcontentloaded)' },
+        disable_security: { type: 'boolean', description: 'Disable browser security (CSP, CORS). Default: false. Only enable when you explicitly need to bypass browser security for testing.' }
       },
       required: ['url']
     }
@@ -26,7 +29,7 @@ export const definition = {
 };
 
 export async function execute(args) {
-  const { url, action = 'extract', javascript, selector, value, wait_ms = 3000, proxy, user_agent, wait_until = 'networkidle2' } = args;
+  const { url, action = 'extract', javascript, selector, value, wait_ms = 3000, proxy, user_agent, wait_until = 'domcontentloaded', disable_security = false } = args;
 
   let browser, page;
   
@@ -39,12 +42,21 @@ export async function execute(args) {
       '--disable-dev-shm-usage',
       '--disable-blink-features=AutomationControlled',
       '--disable-features=IsolateOrigins,site-per-process',
-      '--disable-web-security',
       '--ignore-certificate-errors',
+      '--disable-http2',               // Fix ERR_HTTP2_PROTOCOL_ERROR (PortSwigger, etc.)
+      '--disable-gpu',                 // Stability in headless mode
+      '--disable-extensions',          // No extensions interference
     ];
 
-    if (proxy) {
-      launchArgs.push(`--proxy-server=${proxy}`);
+    // Only disable web security when explicitly requested (was masking real CSP issues)
+    if (disable_security) {
+      launchArgs.push('--disable-web-security');
+    }
+
+    // Proxy: explicit > auto-detected from tool bridge (Burp/ZAP)
+    const effectiveProxy = proxy || toolBridge.getActiveProxy();
+    if (effectiveProxy) {
+      launchArgs.push(`--proxy-server=${effectiveProxy}`);
     }
 
     browser = await puppeteer.default.launch({
@@ -107,19 +119,34 @@ export async function execute(args) {
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
     });
 
+    // ═══ DIALOG HANDLER — Must be BEFORE navigation to catch alert/confirm/prompt ═══
+    // Without this, alert() blocks page load and causes navigation timeout
+    const dialogMessages = [];
+    page.on('dialog', async dialog => {
+      dialogMessages.push({ type: dialog.type(), message: dialog.message() });
+      await dialog.accept();
+    });
+
     // Capture console messages (must be BEFORE navigation to catch all messages)
     const consoleMsgs = [];
     page.on('console', msg => consoleMsgs.push({ type: msg.type(), text: msg.text() }));
 
     // Navigate
-    await page.goto(url, { waitUntil: wait_until, timeout: 30000 });
+    await page.goto(url, { waitUntil: wait_until, timeout: 45000 });
     
     // Wait additional time
     if (wait_ms > 0) {
       await new Promise(r => setTimeout(r, wait_ms));
     }
 
-    let result = { success: true, url };
+    let result = { success: true, url, proxy_used: effectiveProxy || null };
+
+    // ═══ DIALOG RESULTS — Report any alerts/confirms/prompts that fired ═══
+    if (dialogMessages.length > 0) {
+      result.alert_triggered = true;
+      result.dialogs = dialogMessages;
+      result.message = `Alert/dialog triggered! Messages: ${dialogMessages.map(d => d.message).join(', ')}`;
+    }
 
     switch (action) {
       case 'screenshot': {

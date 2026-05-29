@@ -6,6 +6,7 @@ import config from './config.js';
 import * as ui from './ui.js';
 import { memory } from './memory.js';
 import { toolInstaller } from './tool-installer.js';
+import { toolBridge } from './tool-bridge.js';
 import { exec as _exec } from 'child_process';
 
 export class Agent {
@@ -284,6 +285,7 @@ export class Agent {
 
     // Execute the tool
     let execSpinner;
+    const execStart = Date.now();
     if (!this.isSubagent && name !== 'execute_command') {
       execSpinner = ui.createSpinner(`Running ${name}...`);
       execSpinner.start();
@@ -334,6 +336,9 @@ export class Agent {
       this._addToolResult(toolCall.id, name, result);
       if (!this.isSubagent) ui.printToolResult(name, result);
       if (onTool) onTool({ type: 'done', name, args, result });
+
+      // ═══ TOOL TELEMETRY — Log execution for report generation ═══
+      toolBridge.logToolUsage(name, args, result, Date.now() - execStart);
     } catch (error) {
       if (execSpinner) execSpinner.stop();
       

@@ -1,4 +1,4 @@
-// Jarvis Cyber — Interactive REPL
+// Jarvis Cyber v4.0 — Interactive REPL
 import readline from 'readline';
 import { Agent } from './agent.js';
 import { checkServer } from './api.js';
@@ -6,6 +6,7 @@ import { toolDefinitions } from './tools/index.js';
 import config from './config.js';
 import { memory } from './memory.js';
 import { skillsManager } from './skills-manager.js';
+import { toolBridge } from './tool-bridge.js';
 import * as ui from './ui.js';
 
 export async function startRepl(cwd, options = {}) {
@@ -253,6 +254,38 @@ async function handleSlashCommand(input, agent, rl) {
     case '/exit':
     case '/quit':
       return true;
+
+    case '/usage': {
+      const stats = toolBridge.getUsageStats();
+      const entries = Object.entries(stats);
+      if (entries.length === 0) {
+        ui.printInfo('📊 No tool usage recorded this session yet.');
+      } else {
+        console.log(`\n${ui.colors.bright.bold('📊 Tool Usage This Session:')}`);
+        for (const [tool, data] of entries.sort((a, b) => b[1].calls - a[1].calls)) {
+          const subtypes = Object.entries(data.subtypes).slice(0, 5).map(([k, v]) => `${k}:${v}`).join(', ');
+          console.log(`  ${ui.colors.tool(tool.padEnd(22))} ${ui.colors.secondary(String(data.calls).padEnd(4))} calls  ${ui.colors.success(String(data.successes) + '✅')} ${ui.colors.danger(String(data.failures) + '❌')}  ${ui.colors.muted(subtypes)}`);
+        }
+        console.log();
+      }
+      break;
+    }
+
+    case '/services': {
+      const services = toolBridge.scan();
+      if (services.size === 0) {
+        ui.printInfo('🔌 No active tool services detected.');
+      } else {
+        console.log(`\n${ui.colors.bright.bold('🔌 Active Tool Services:')}`);
+        for (const [, service] of services) {
+          console.log(`  ✅ ${ui.colors.secondary(service.displayName.padEnd(25))} ${ui.colors.muted(`${service.host}:${service.port}`)}  ${ui.colors.muted(`(${service.type})`)}`);
+        }
+        const proxy = toolBridge.getActiveProxy();
+        if (proxy) console.log(`\n  🌐 Active Proxy: ${ui.colors.success(proxy)}`);
+        console.log();
+      }
+      break;
+    }
 
     default:
       ui.printWarning(`Unknown command: ${cmd}. Type /help for available commands.`);

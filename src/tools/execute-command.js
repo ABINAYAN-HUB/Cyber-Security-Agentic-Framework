@@ -181,8 +181,6 @@ export async function execute(args, cwd) {
 
       if (code !== 0) {
         // ═══ SUDO PASSWORD FAILURE DETECTION ═══
-        // If sudo -n failed because no password-less access is configured, provide
-        // a clear error so the AI agent can adapt (retry without sudo, or inform the user)
         const isSudoAuthFailure = errStr.includes('a password is required') || 
                                    errStr.includes('sudo: a terminal is required') ||
                                    errStr.includes('no askpass program specified');
@@ -191,6 +189,35 @@ export async function execute(args, cwd) {
             'Either: (1) retry the command without sudo if the tool does not strictly need root, ' +
             'or (2) tell the user to run: echo "blackhat ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/jarvis-nopasswd && sudo chmod 440 /etc/sudoers.d/jarvis-nopasswd'
           : null;
+
+        // ═══ SOFT-FAILURE HANDLING (v4.0) ═══
+        // Many tools exit with code 1 for INFORMATIONAL reasons, not errors:
+        //   grep/egrep/fgrep: exit 1 = "no match found" (expected in conditional checks)
+        //   test/[: exit 1 = "condition is false"
+        //   diff: exit 1 = "files differ"
+        //   find: exit 1 = "no files found matching criteria"
+        //   curl|grep: pipeline fails if last command (grep) finds no match
+        // Treating these as errors confuses the AI into thinking something broke.
+        const cmdStr = command.trim();
+        const isSoftFailure = (code === 1) && !sudoError && (
+          // Direct grep/test/diff invocations
+          /\b(grep|egrep|fgrep|test|diff|find|cmp)\b/.test(cmdStr) ||
+          // Pipeline ending in grep (e.g., curl ... | grep ...)
+          /\|\s*(grep|egrep|fgrep)\b/.test(cmdStr)
+        );
+
+        if (isSoftFailure) {
+          // Return as success with informational note — not an error
+          resolve({
+            success: true,
+            exit_code: code,
+            stdout: outStr || '(no match found)',
+            stderr: errStr,
+            note: 'Command exited with code 1 (no match/false condition). This is normal — not an error.',
+            command,
+          });
+          return;
+        }
 
         resolve({
           success: false,

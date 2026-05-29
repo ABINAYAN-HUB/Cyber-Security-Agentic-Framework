@@ -136,6 +136,21 @@ else if (args.includes('--daemon')) {
   });
 }
 
+// ═══ MODE: MCP SERVER (v4.0) ═══
+else if (args.includes('--mcp')) {
+  import('./src/mcp-server.js').then(async ({ startMcpServer }) => {
+    try {
+      const portIdx = args.indexOf('--port');
+      const port = portIdx !== -1 && args[portIdx + 1] ? parseInt(args[portIdx + 1]) : undefined;
+      const transport = port ? 'sse' : 'stdio';
+      await startMcpServer({ transport, port });
+    } catch (err) {
+      console.error(`Fatal: ${err.message}`);
+      process.exit(1);
+    }
+  });
+}
+
 // ═══ MODE: INTERACTIVE CLI ═══
 else {
   const cwd = process.cwd();

@@ -31,6 +31,7 @@ import * as hashGenerate from './hash-generate.js';
 import * as encodeDecode from './encode-decode.js';
 import * as saveArtifact from './save-artifact.js';
 import * as memoryStore from './memory-store.js';
+import * as generateReport from './generate-report.js';
 
 // ═══ FOFA ═══
 import * as fofaSearch from './fofa-search.js';
@@ -86,7 +87,7 @@ const tools = [
   encodeDecode, hashGenerate,
   
   // ═══ Data Management ═══
-  saveArtifact, memoryStore,
+  saveArtifact, memoryStore, generateReport,
   
   // ═══ Dynamic Tool Installer ═══
   installTool,
@@ -115,7 +116,7 @@ export const safeTools = new Set([
   'whois_lookup', 'wayback_machine',
   'hash_generate', 'encode_decode', 'memory_store', 'metasploit_rpc',
   'fofa_search', 'subfinder_enum', 'httpx_probe', 'dnsx_resolve',
-  'uncover_search', 'katana_crawl',
+  'uncover_search', 'katana_crawl', 'generate_report',
 ]);
 
 export const writeTools = new Set([

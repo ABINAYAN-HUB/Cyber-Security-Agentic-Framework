@@ -149,8 +149,15 @@ const KALI_TOOLS = [
     usage: ['lynis audit system                     # Full system security audit'] },
 
   // ═══ WEB APPLICATION ANALYSIS ═══
-  { name: 'burpsuite', bin: 'burpsuite', cat: 'web-application', desc: 'Web application security testing platform (GUI)', install: 'sudo apt install -y burpsuite', mitre: ['T1190'] },
-  { name: 'zaproxy', bin: 'zaproxy', cat: 'web-application', desc: 'OWASP ZAP — web application security scanner', install: 'sudo apt install -y zaproxy', mitre: ['T1190'],
+  { name: 'burpsuite', bin: 'burpsuite', cat: 'web-application', desc: 'Web application security testing platform — proxy, scanner, repeater, intruder. Routes HTTP traffic for interception and analysis. Install the MCP Server BApp extension for AI integration.', install: 'sudo apt install -y burpsuite', mitre: ['T1190'], proxy_port: 8080,
+    usage: [
+      'burpsuite &                                               # Launch Burp Suite GUI in background',
+      'curl -x http://127.0.0.1:8080 -sk "https://target/"      # Route GET request through Burp proxy',
+      'curl -x http://127.0.0.1:8080 -sk -X POST -d "user=admin&pass=test" "https://target/login"  # POST through Burp',
+      'curl -x http://127.0.0.1:8080 -sk -H "X-Custom: payload" "https://target/api"  # Custom headers through Burp',
+      'curl -x http://127.0.0.1:8080 -sk -b "session=abc123" "https://target/admin"   # Cookies through Burp proxy',
+    ]},
+  { name: 'zaproxy', bin: 'zaproxy', cat: 'web-application', desc: 'OWASP ZAP — web application security scanner and proxy', install: 'sudo apt install -y zaproxy', mitre: ['T1190'], proxy_port: 8090,
     usage: [
       'zaproxy -daemon -port 8090 -config api.disablekey=true  # Start daemon mode',
       'zaproxy -cmd -quickurl URL -quickout report.html        # Quick scan + report',

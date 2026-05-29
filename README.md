@@ -2,14 +2,15 @@
 
 <p align="center">
   <strong>Autonomous AI Cybersecurity Agent — Framework-Driven Offensive Security</strong><br>
-  150+ Kali Tools • MITRE ATT&CK • Dynamic Strategy Engine • Auto-Installer • Telegram Bot
+  150+ Kali Tools • MCP Server • MITRE ATT&CK • Dynamic Strategy Engine • Auto-Installer • Report Engine • Telegram Bot
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.5.0-red?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-4.0.0-red?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/kali_tools-150+-brightgreen?style=for-the-badge" alt="Tools">
   <img src="https://img.shields.io/badge/node-%3E%3D18-blue?style=for-the-badge" alt="Node">
   <img src="https://img.shields.io/badge/platform-Kali%20Linux-black?style=for-the-badge" alt="Platform">
+  <img src="https://img.shields.io/badge/MCP_Server-Supported-cyan?style=for-the-badge" alt="MCP">
   <img src="https://img.shields.io/badge/MITRE_ATT%26CK-Mapped-purple?style=for-the-badge" alt="MITRE">
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=for-the-badge" alt="License">
 </p>
@@ -19,6 +20,15 @@
 ## 🔥 What is Jarvis Cyber?
 
 Jarvis Cyber is a **fully autonomous AI cybersecurity agent** powered by NVIDIA NIM API. Unlike traditional tools with static playbooks, Jarvis uses **MITRE ATT&CK** and the **Cyber Kill Chain** to dynamically generate attack strategies tailored to each target — no hardcoded scripts, no rigid workflows.
+
+### What's New in v4.0
+
+- **🔌 MCP Server** — Expose all 150+ Kali tools as Model Context Protocol tools via stdio or SSE transport. Any MCP-compatible client (Claude Desktop, Cursor, VS Code, etc.) can use Jarvis as a cybersecurity backend.
+- **📊 Dynamic Report Engine** — Auto-generates structured pentest reports from tool execution history. Includes executive summary, Kill Chain methodology, findings, MITRE ATT&CK mapping, timeline, and recommendations.
+- **🌉 Tool Bridge** — Runtime service discovery that auto-detects running proxies (Burp Suite, ZAP, mitmproxy) and tool services (Metasploit RPC, Interactsh). Routes traffic through active proxies automatically.
+- **🤖 Subagent System** — Spawn background AI agents for parallelizable tasks. The main agent can delegate time-consuming work (recon, brute-force, scraping) to subagents and check results later.
+- **📝 Skills Manager** — Load custom user-created skills from a `skills/` directory with YAML frontmatter and bundled scripts.
+- **🎯 Listener Manager** — Persistent TCP listener for catching reverse shells, with dynamic port conflict detection and interactive shell command execution.
 
 ### Key Capabilities
 
@@ -92,6 +102,33 @@ jarvis                    # or: node cli.js
 ```
 Type naturally: *"Scan example.com for vulnerabilities"*, *"Find subdomains of target.com"*, *"Exploit the vsftpd service on 192.168.1.5"*
 
+### MCP Server (v4.0) — stdio
+```bash
+jarvis --mcp              # or: node cli.js --mcp
+```
+Exposes all 150+ Kali tools as MCP tools over **stdio transport**. Connect from Claude Desktop, Cursor, or any MCP client.
+
+### MCP Server (v4.0) — SSE (Remote)
+```bash
+jarvis --mcp --port 8888  # or: node cli.js --mcp --port 8888
+```
+Starts an **SSE transport** MCP server on the given port. Endpoints:
+- `GET /sse` — SSE event stream
+- `POST /messages?sessionId=...` — Send messages
+- `GET /health` — Health check with installed tool count and active services
+
+**Example `claude_desktop_config.json`:**
+```json
+{
+  "mcpServers": {
+    "jarvis-cyber": {
+      "command": "node",
+      "args": ["/path/to/Cyber-Security-Agentic-Framework/cli.js", "--mcp"]
+    }
+  }
+}
+```
+
 ### Telegram Bot
 ```bash
 jarvis --telegram         # or: node cli.js --telegram
@@ -133,6 +170,38 @@ systemctl --user restart jarvis     # Restart
 systemctl --user disable jarvis     # Disable auto-start
 journalctl --user -u jarvis -f     # Live logs
 ```
+
+---
+
+## 🔌 MCP Server Architecture
+
+The MCP (Model Context Protocol) server dynamically exposes **every installed Kali tool** as an MCP tool, plus core framework tools. Any MCP-compatible AI client can leverage Jarvis's full capabilities.
+
+### Core MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `execute_command` | Run any shell command on the Kali system |
+| `generate_report` | Auto-generate a pentest report from session history |
+| `install_tool` | Dynamically install any security tool |
+| `list_tools` | List all installed tools grouped by category |
+| `scan_services` | Detect running proxies and tool services |
+| `usage_stats` | Session tool usage statistics |
+
+### Dynamic Kali Tools
+
+Every installed Kali tool from the 150+ registry is auto-registered as `kali_<tool_name>` with:
+- Auto-generated parameter schemas (args, target, timeout)
+- MITRE ATT&CK technique mapping in the description
+- Proxy detection for proxy-capable tools
+- Auto-install on first use if missing
+
+### Supported Transports
+
+| Transport | Command | Use Case |
+|-----------|---------|----------|
+| **stdio** | `jarvis --mcp` | Local MCP clients (Claude Desktop, Cursor) |
+| **SSE** | `jarvis --mcp --port 8888` | Remote clients, multi-user, web integrations |
 
 ---
 
@@ -279,7 +348,7 @@ When a command fails due to a missing dependency, Jarvis:
 
 ---
 
-## 🛠️ Built-in API Tools (31 Tools)
+## 🛠️ Built-in API Tools (35 Tools)
 
 These are native tools with dedicated implementations (not CLI wrappers):
 
@@ -328,6 +397,14 @@ These are native tools with dedicated implementations (not CLI wrappers):
 | Dnsx | `dnsx_resolve` | DNS resolution toolkit |
 | Uncover | `uncover_search` | Multi-engine search aggregator |
 
+### Reporting & Orchestration (v4.0)
+| Tool | Command | Description |
+|------|---------|-------------|
+| Generate Report | `generate_report` | Auto-generate structured pentest reports |
+| Spawn Subagent | `spawn_subagent` | Launch background AI agent for parallel tasks |
+| Check Subagent | `check_subagent_status` | Check subagent progress and results |
+| List Subagents | `list_subagents` | View all background agents |
+
 ### Utilities
 | Tool | Command | Description |
 |------|---------|-------------|
@@ -336,6 +413,51 @@ These are native tools with dedicated implementations (not CLI wrappers):
 | Save Artifact | `save_artifact` | Save scan results/reports to disk |
 | Memory Store | `memory_store` | Store/retrieve data from persistent memory |
 | Metasploit RPC | `metasploit_rpc` | Metasploit Framework integration |
+
+---
+
+## 🌉 Tool Bridge — Runtime Service Discovery
+
+The Tool Bridge automatically detects running security tool services and routes traffic through active proxies.
+
+### Auto-Detected Services
+
+| Service | Port | Type | Auto-Action |
+|---------|------|------|-------------|
+| Burp Suite Proxy | 8080 | HTTP Proxy | Routes all HTTP traffic through Burp |
+| OWASP ZAP Proxy | 8090 | HTTP Proxy | Routes traffic through ZAP |
+| mitmproxy | 8081 | HTTP Proxy | Routes traffic through mitmproxy |
+| Metasploit RPC | 55553 | RPC | Enables `metasploit_rpc` tool |
+| Burp Suite MCP | 9876 | MCP | Connects to Burp's MCP server |
+| Burp Collaborator | 9090 | OOB | Out-of-band interaction server |
+| Interactsh Server | 8553 | OOB | ProjectDiscovery OOB server |
+
+### How It Works
+1. **Scans** all known ports every 30 seconds
+2. **Detects** running services via TCP probe
+3. **Injects context** into the AI's system prompt (active proxies, services)
+4. **Auto-routes** stealth browser and curl traffic through active proxy
+5. **Logs telemetry** — tracks tool usage, success rates, and MITRE technique mapping
+
+---
+
+## 📊 Dynamic Report Engine
+
+After any security assessment, Jarvis can auto-generate a comprehensive pentest report:
+
+```
+You: "Generate a report for this assessment"
+Jarvis: 📊 Report generated → jarvis-output/reports/report_example_com_1716950000.md
+```
+
+### Report Sections
+- **Executive Summary** — Automated from tool execution stats
+- **Methodology** — Kill Chain phases actually executed
+- **Findings** — Auto-classified vulnerabilities with severity ratings
+- **Tool Usage Breakdown** — Per-tool call counts, success rates, categories
+- **MITRE ATT&CK Mapping** — Technique IDs mapped from every tool execution
+- **Execution Timeline** — Chronological tool-by-tool execution log
+- **Recommendations** — Generated based on findings and phases
 
 ---
 
@@ -361,7 +483,7 @@ All data is stored in a local **SQLite database** with persistent tables for kno
 
 ```
 Cyber-Security-Agentic-Framework/
-├── cli.js                          # Entry point — CLI, Telegram, daemon modes
+├── cli.js                          # Entry point — CLI, Telegram, daemon, MCP modes
 ├── package.json                    # Dependencies & npm scripts
 ├── install-service.sh              # Systemd auto-start installer
 ├── .env.example                    # Environment template
@@ -371,28 +493,58 @@ Cyber-Security-Agentic-Framework/
 │   ├── auto-learner.js             # 24/7 cyber threat intelligence engine
 │   ├── config.js                   # Configuration management
 │   ├── daemon.js                   # Background daemon + cron scheduler
-│   ├── memory.js                   # SQLite database (persistent memory)
-│   ├── repl.js                     # Interactive CLI REPL
-│   ├── system-prompt.js            # AI agent system prompt builder
-│   ├── telegram-bot.js             # Telegram bot interface
-│   ├── ui.js                       # Terminal UI with banners & streaming
+│   ├── dynamic-skills.js           # AI-driven strategy generation engine
 │   ├── frameworks.js               # MITRE ATT&CK + Cyber Kill Chain definitions
 │   ├── kali-tools-registry.js      # 150+ Kali tools with usage examples
+│   ├── listener-manager.js         # TCP listener manager for reverse shells
+│   ├── mcp-server.js               # MCP Server — stdio & SSE transports (v4.0)
+│   ├── memory.js                   # SQLite database (persistent memory)
+│   ├── repl.js                     # Interactive CLI REPL
+│   ├── report-engine.js            # Dynamic pentest report generator (v4.0)
+│   ├── skills-manager.js           # Custom skill loader (skills/ directory)
+│   ├── subagent-manager.js         # Background subagent orchestration (v4.0)
+│   ├── system-prompt.js            # AI agent system prompt builder
+│   ├── telegram-bot.js             # Telegram bot interface
+│   ├── tool-bridge.js              # Runtime service discovery & proxy routing (v4.0)
 │   ├── tool-installer.js           # Dynamic tool installer & self-healing
-│   ├── dynamic-skills.js           # AI-driven strategy generation engine
-│   └── tools/                      # 31 built-in tool implementations
+│   ├── ui.js                       # Terminal UI with banners & streaming
+│   └── tools/                      # 35 built-in tool implementations
 │       ├── index.js                # Tool registry & permission classification
+│       ├── bg-interact.js          # Background process interaction
+│       ├── check-port.js           # TCP port connectivity check
+│       ├── cve-lookup.js           # CVE details from NVD
+│       ├── dns-recon.js            # DNS enumeration
+│       ├── edit-file.js            # Search-and-replace file editing
+│       ├── encode-decode.js        # Encoding/decoding utilities
 │       ├── execute-command.js      # Shell execution with sudo fix & streaming
-│       ├── install-tool.js         # AI-callable dynamic tool installer
-│       ├── projectdiscovery.js     # Nuclei, Subfinder, Httpx, etc.
 │       ├── fofa-search.js          # FOFA integration
-│       ├── shodan-search.js        # Shodan integration
+│       ├── generate-report.js      # Report generation tool (v4.0)
 │       ├── github-search.js        # GitHub code search
+│       ├── hash-generate.js        # Hash generation
+│       ├── install-tool.js         # AI-callable dynamic tool installer
+│       ├── list-directory.js       # Directory listing
+│       ├── memory-store.js         # Persistent memory store
 │       ├── metasploit-rpc.js       # Metasploit RPC integration
+│       ├── network-utils.js        # Shared network error diagnostics
+│       ├── projectdiscovery.js     # Nuclei, Subfinder, Httpx, etc.
+│       ├── read-file.js            # File reader
+│       ├── read-url.js             # URL content extraction
+│       ├── save-artifact.js        # Scan result saver
+│       ├── search-files.js         # Regex file search
+│       ├── search-glob.js          # Glob pattern search
+│       ├── shodan-search.js        # Shodan integration
+│       ├── start-listener.js       # Reverse shell listener
 │       ├── stealth-browser.js      # Headless browser automation
-│       └── ... (20+ more)
-└── tests/
-    └── test-all.js                 # Test suite
+│       ├── subagent-tools.js       # Subagent spawn/check/list (v4.0)
+│       ├── tavily-search.js        # Tavily AI search
+│       ├── wayback-machine.js      # Wayback Machine integration
+│       ├── web-search.js           # DuckDuckGo search
+│       ├── whois-lookup.js         # WHOIS lookup
+│       └── write-file.js           # File writer
+├── skills/                         # Custom user skills (SKILL.md + scripts)
+├── tests/
+│   └── test-all.js                 # Test suite
+└── jarvis-output/                  # Scan results, reports, artifacts
 ```
 
 ---
@@ -453,6 +605,30 @@ node tests/test-all.js
 - **Dynamic retry reset** — File modifications clear failure memory (enables fix → retry cycles)
 - **Soft failure exclusion** — Network timeouts and recon exit codes aren't counted as failures
 
+### MCP Server (`src/mcp-server.js`)
+- **Dynamic tool registration** — Reads from `kali-tools-registry.js` and auto-registers each installed tool
+- **Dual transport** — stdio for local clients, SSE with Express for remote access
+- **Health endpoint** — `/health` returns installed tool count, active services, and proxy status
+- **Auto-install** — Missing tools are installed on first MCP call
+
+### Tool Bridge (`src/tool-bridge.js`)
+- **Service discovery** — Batch TCP port probing for all known security tool services
+- **Proxy priority** — Burp Suite > ZAP > mitmproxy for automatic traffic routing
+- **Session telemetry** — Logs every tool call with MITRE ATT&CK mapping
+- **Dynamic system prompt injection** — Active services appear in the AI's context automatically
+
+### Report Engine (`src/report-engine.js`)
+- **Auto-classification** — Categorizes tool executions into Kill Chain phases automatically
+- **Vulnerability detection** — Pattern-matches tool output for common vulnerability indicators
+- **MITRE mapping** — Maps every tool execution to ATT&CK technique IDs
+- **Markdown output** — Clean, structured reports saved to `jarvis-output/reports/`
+
+### Subagent System (`src/subagent-manager.js`)
+- **Fire-and-forget** — Spawn background agents that run independently
+- **Full tool access** — Subagents have the same 35 tools as the main agent
+- **Status tracking** — Check progress, read output logs, or kill stalled agents
+- **Log files** — Results written to `.subagents/<id>.log`
+
 ### Sudo Non-Interactive Fix (`src/tools/execute-command.js`)
 - All `sudo` commands are automatically rewritten to `sudo -n` (non-interactive)
 - Prevents Telegram bot and daemon from hanging on password prompts
@@ -478,6 +654,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <strong>🐉 Jarvis Cyber v3.5</strong><br>
+  <strong>🐉 Jarvis Cyber v4.0</strong><br>
   <em>Built by <a href="https://github.com/ABINAYAN-HUB">ABINAYAN</a></em>
 </p>

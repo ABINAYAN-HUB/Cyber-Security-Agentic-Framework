@@ -77,8 +77,8 @@ ${colors.primary('║')} ${colors.danger.bold('██   ██║██╔══
 ${colors.primary('║')} ${colors.danger.bold('╚█████╔╝██║  ██║██║  ██║ ╚████╔╝ ██║███████║')}                ${colors.primary('║')}
 ${colors.primary('║')}  ${colors.danger.bold('╚════╝ ╚═╝  ╚═╝╚═╝  ╚═╝  ╚═══╝  ╚═╝╚══════╝')}                ${colors.primary('║')}
 ${colors.primary('║')}                                                                      ${colors.primary('║')}
-${colors.primary('║')}   ${colors.secondary.bold('C Y B E R')} ${colors.muted('— Autonomous AI Cybersecurity Agent v3.0')}               ${colors.primary('║')}
-${colors.primary('║')}   ${colors.muted(`NVIDIA NIM │ ${(config.model || 'auto').padEnd(15)} │ 50+ Tools │ Auto-Learn │ DB`)}  ${colors.primary('║')}
+${colors.primary('║')}   ${colors.secondary.bold('C Y B E R')} ${colors.muted('— Autonomous AI Cybersecurity Agent v4.0')}               ${colors.primary('║')}
+${colors.primary('║')}   ${colors.muted(`NVIDIA NIM │ ${(config.model || 'auto').padEnd(15)} │ 150+ Tools │ MCP │ Auto-Learn`)}  ${colors.primary('║')}
 ${colors.primary('║')}                                                                      ${colors.primary('║')}
 ${colors.primary('╚══════════════════════════════════════════════════════════════════════╝')}
 `;
@@ -96,17 +96,20 @@ ${colors.bright.bold('Slash Commands:')}
   ${colors.secondary('/compact')}    ${colors.muted('Compact history (reduce tokens)')}
   ${colors.secondary('/model')}      ${colors.muted('Show or change the active model')}
   ${colors.secondary('/cost')}       ${colors.muted('Show token usage statistics')}
-  ${colors.secondary('/tools')}      ${colors.muted('List all 50+ security tools')}
+  ${colors.secondary('/tools')}      ${colors.muted('List all 150+ security tools')}
   ${colors.secondary('/learn')}      ${colors.muted('Show auto-learning stats')}
   ${colors.secondary('/skills')}     ${colors.muted('List loaded skill modules')}
   ${colors.secondary('/memory')}     ${colors.muted('Show memory stats')}
+  ${colors.secondary('/usage')}      ${colors.muted('Show tool usage stats this session')}
+  ${colors.secondary('/services')}   ${colors.muted('Show active proxy/tool services')}
   ${colors.secondary('/exit')}       ${colors.muted('Exit the agent')}
 
 ${colors.bright.bold('Tips:')}
   ${colors.muted('•')} Type naturally: "Scan example.com for vulnerabilities"
-  ${colors.muted('•')} The agent has 50+ built-in security tools (including Nuclei, FOFA, PD suite)
+  ${colors.muted('•')} The agent has 150+ built-in security tools (Burp, ZAP, Nuclei, FOFA, PD suite)
   ${colors.muted('•')} It remembers data across sessions via persistent memory
   ${colors.muted('•')} Start with --telegram for Telegram bot mode
+  ${colors.muted('•')} Start with --mcp for MCP server mode (AI tool integration)
   ${colors.muted('•')} Start with --daemon for background heartbeat mode
 `);
 }
@@ -200,6 +203,8 @@ const toolIcons = {
   katana_crawl:     icons.search,
   dnsx_resolve:     icons.scan,
   uncover_search:   icons.search,
+  generate_report:  icons.file,
+  install_tool:     icons.tool,
 };
 
 export function printToolCall(name, args) {
@@ -237,6 +242,10 @@ export function printToolResult(name, result) {
   
   console.log(colors.success(`     ${icons.success} Done`));
   
+  // Show informational note for soft-failures (e.g., grep with no match)
+  if (result.note) {
+    console.log(colors.muted(`     ℹ️  ${result.note}`));
+  }
   // Brief output for specific tools
   if (name === 'list_directory' && result.listing) {
     const lines = result.listing.split('\n').slice(0, 10);
