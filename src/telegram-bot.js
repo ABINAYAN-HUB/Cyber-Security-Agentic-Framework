@@ -1,6 +1,23 @@
 // Jarvis Cyber — Telegram Bot Interface
 // Full AI agent control via Telegram messaging
+import dns from 'dns';
 import TelegramBot from 'node-telegram-bot-api';
+
+// Force IPv4-first DNS resolution globally.
+// Without this, Node.js tries IPv6 first — when IPv6 is unreachable (common on
+// NAT'd VMs, Kali, WSL), the @cypress/request library used by node-telegram-bot-api
+// fails with EAI_AGAIN / AggregateError instead of falling back to IPv4 cleanly.
+dns.setDefaultResultOrder('ipv4first');
+
+// CRITICAL: Node.js v22's built-in fetch (undici) has its OWN DNS resolver that
+// IGNORES dns.setDefaultResultOrder(). It tries IPv6 first, gets ENETUNREACH,
+// then the IPv4 fallback hangs until ETIMEDOUT (~60s) because undici's default
+// autoSelectFamilyAttemptTimeout is too long. Fix: configure undici's global
+// dispatcher with autoSelectFamily + a short timeout so it quickly falls to IPv4.
+import { Agent as UndiciAgent, setGlobalDispatcher } from 'undici';
+setGlobalDispatcher(new UndiciAgent({
+  connect: { autoSelectFamily: true, autoSelectFamilyAttemptTimeout: 2000 }
+}));
 import { Agent } from './agent.js';
 import config from './config.js';
 import { memory } from './memory.js';
@@ -164,10 +181,12 @@ export class TelegramInterface {
           // Stop retrying — manual intervention needed
           this.bot.stopPolling();
         }
-      } else if (msg.includes('ETIMEDOUT') || msg.includes('ECONNRESET') || msg.includes('ENOTFOUND')) {
-        // Network issues — silent, they auto-recover
+      } else if (msg.includes('ETIMEDOUT') || msg.includes('ECONNRESET') || msg.includes('ENOTFOUND') || msg.includes('EAI_AGAIN')) {
+        // Network/DNS issues — silent, they auto-recover
       } else if (msg.includes('504')) {
         // Gateway timeout — Telegram server overloaded, auto-recovers
+      } else if (msg.includes('EFATAL') && (msg.includes('AggregateError') || msg.includes('EAI_AGAIN') || msg.includes('fetch failed'))) {
+        // Transient DNS/network failure wrapped by node-telegram-bot-api — auto-recovers
       } else {
         console.warn(`⚠️  Telegram: ${msg.slice(0, 150)}`);
       }
@@ -195,7 +214,23 @@ export class TelegramInterface {
     // Handle documents (file uploads)
     this.bot.on('document', (msg) => this._handleDocument(msg));
 
-    const me = await this.bot.getMe();
+    // getMe() with retry — transient DNS failures (EAI_AGAIN) can kill startup
+    let me = null;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        me = await this.bot.getMe();
+        break;
+      } catch (err) {
+        const errMsg = err.message || '';
+        if (attempt < 5 && (errMsg.includes('EAI_AGAIN') || errMsg.includes('AggregateError') || errMsg.includes('EFATAL') || errMsg.includes('fetch failed') || errMsg.includes('ECONNRESET'))) {
+          console.log(`   ⚠️  getMe() attempt ${attempt}/5 failed (${errMsg.slice(0, 80)}), retrying in ${attempt * 2}s...`);
+          await new Promise(r => setTimeout(r, attempt * 2000));
+        } else {
+          throw err; // Non-transient error or max retries exceeded
+        }
+      }
+    }
+    if (!me) throw new Error('Failed to connect to Telegram API after 5 attempts. Check your network.');
     console.log(`✅ Bot online: @${me.username} (${me.id})`);
     
     // Reset 409 counter on successful start
@@ -277,26 +312,26 @@ export class TelegramInterface {
     
     let result = text;
 
-    // Convert fenced code blocks: ```lang\ncode\n``` -> <pre><code>code</code></pre>
+    // Step 1: Escape ALL HTML entities first (we'll un-escape our own tags after)
+    result = this._escapeHtml(result);
+
+    // Step 2: Convert fenced code blocks: ```lang\ncode\n``` -> <pre><code>code</code></pre>
+    // (entities inside code blocks are already escaped from step 1, which is correct)
     result = result.replace(/```[\w]*\n?([\s\S]*?)```/g, (match, code) => {
-      return `<pre><code>${this._escapeHtml(code.trim())}</code></pre>`;
+      return `<pre><code>${code.trim()}</code></pre>`;
     });
 
-    // Convert inline code: `code` -> <code>code</code>
-    // Simple approach: skip content already inside <pre><code> blocks
+    // Step 3: Convert inline code: `code` -> <code>code</code>
     result = result.replace(/`([^`\n]+)`/g, (match, code) => {
-      return `<code>${this._escapeHtml(code)}</code>`;
+      return `<code>${code}</code>`;
     });
 
-    // Convert bold: **text** or __text__
+    // Step 4: Convert bold: **text** or __text__
     result = result.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
     result = result.replace(/__([^_]+)__/g, '<b>$1</b>');
 
-    // Convert italic: *text* or _text_ (careful not to match ** or __)
+    // Step 5: Convert italic: *text* or _text_ (careful not to match ** or __)
     result = result.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<i>$1</i>');
-
-    // Escape any remaining HTML entities NOT inside tags
-    // (leave our already-converted tags intact)
 
     return result;
   }
@@ -348,12 +383,20 @@ export class TelegramInterface {
   }
 
   async _safeSend(chatId, text, parseMode = 'HTML', returnMsg = false) {
+    if (!text || text.trim().length === 0) return returnMsg ? null : undefined;
+    
     // Try with parse_mode first
     try {
       const msg = await this.bot.sendMessage(chatId, text, { parse_mode: parseMode });
       if (returnMsg) return msg;
       return;
-    } catch {}
+    } catch (e1) {
+      // Log the failure so we can diagnose formatting issues
+      const errMsg = e1?.response?.body?.description || e1.message || '';
+      if (errMsg && !errMsg.includes('429')) {
+        console.warn(`⚠️  Telegram HTML send failed: ${errMsg.slice(0, 200)}`);
+      }
+    }
 
     // Fallback: send as plain text (strip HTML tags)
     try {
@@ -362,14 +405,16 @@ export class TelegramInterface {
         .replace(/<code>([\s\S]*?)<\/code>/g, '`$1`')
         .replace(/<b>([\s\S]*?)<\/b>/g, '$1')
         .replace(/<i>([\s\S]*?)<\/i>/g, '$1')
+        .replace(/<[^>]+>/g, '') // Strip any remaining HTML tags
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
         .replace(/&amp;/g, '&');
-      const msg = await this.bot.sendMessage(chatId, plainText);
+      const msg = await this.bot.sendMessage(chatId, plainText || '(empty response)');
       if (returnMsg) return msg;
       return;
     } catch (e2) {
-      console.error(`Failed to send message: ${e2.message}`);
+      console.error(`❌ Failed to send message to Telegram (both HTML and plain): ${e2.message}`);
+      return returnMsg ? null : undefined;
     }
   }
 
@@ -913,27 +958,49 @@ Just type naturally. Examples:
         if (m.role === 'tool') dispatchedToolOutputs = true;
       }
 
-      // Then send the assistant's text response
-      const assistantText = responseParts.join('\n').trim();
+      // Get the FINAL assistant text (last response after all tool loops)
+      const assistantText = responseParts.length > 0 ? responseParts[responseParts.length - 1].trim() : '';
+
       if (assistantText) {
-        if (streamingMessageId && assistantText.length < 3900) {
-          // Finalize streaming text by removing the cursor block and pushing standard complete payload
+        if (streamingMessageId && streamedText.trim().length > 0) {
+          // We were streaming text — finalize the streaming message
           try {
-            await this.bot.editMessageText(this._markdownToTelegramHtml(assistantText), { chat_id: chatId, message_id: streamingMessageId, parse_mode: 'HTML' });
+            const finalHtml = this._markdownToTelegramHtml(assistantText);
+            if (assistantText.length < 3900) {
+              await this.bot.editMessageText(finalHtml, { chat_id: chatId, message_id: streamingMessageId, parse_mode: 'HTML' });
+            } else {
+              // Text too long for a single edit — delete streaming msg and send fresh
+              try { await this.bot.deleteMessage(chatId, streamingMessageId); } catch {}
+              await this._sendLong(chatId, assistantText, 'HTML');
+            }
+          } catch {
+            // Edit failed (e.g., message not modified, or was deleted) — send as new message
+            await this._sendLong(chatId, assistantText, 'HTML');
+          }
+        } else if (streamingMessageId && hasSentThinking) {
+          // We sent "Thinking..." but the response didn't stream — edit it into the final response
+          try {
+            const finalHtml = this._markdownToTelegramHtml(assistantText);
+            if (assistantText.length < 3900) {
+              await this.bot.editMessageText(finalHtml, { chat_id: chatId, message_id: streamingMessageId, parse_mode: 'HTML' });
+            } else {
+              try { await this.bot.deleteMessage(chatId, streamingMessageId); } catch {}
+              await this._sendLong(chatId, assistantText, 'HTML');
+            }
           } catch {
             await this._sendLong(chatId, assistantText, 'HTML');
           }
         } else {
-          // Use standard chunked send array if huge block
+          // No streaming happened — send the full response as a new message
           await this._sendLong(chatId, assistantText, 'HTML');
         }
-      } else if (streamingMessageId && hasSentThinking) {
-        // If thinking was sent but no text followed, remove the 'Thinking...' message
+      } else if (streamingMessageId && hasSentThinking && !streamedText.trim()) {
+        // "Thinking..." was sent but no text followed — clean it up
         try { await this.bot.deleteMessage(chatId, streamingMessageId); } catch {}
       }
 
-      // If nothing at all was captured, say so
-      if (!dispatchedToolOutputs && !assistantText) {
+      // If nothing at all was captured (no tools, no text), inform the user
+      if (!dispatchedToolOutputs && !assistantText && !streamedText.trim()) {
         await this._safeSend(chatId, '✅ Task completed (no text output).');
       }
 

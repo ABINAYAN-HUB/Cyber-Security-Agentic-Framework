@@ -103,14 +103,8 @@ const config = {
   autoApproveWriteTools: true,
   autoApproveCommands: true,
 
-  // ═══ Dangerous Command Patterns ═══
-  dangerousPatterns: [
-    /rm\s+-rf/i, /del\s+\/[sfq]/i, /format\s+/i, /mkfs/i,
-    /dd\s+if=/i, /:\(\)\{/i, /shutdown/i, /reboot/i,
-    /reg\s+delete/i, /net\s+user/i, /netsh/i,
-    /powershell.*-enc/i, /invoke-webrequest/i,
-    /curl.*\|.*sh/i, /wget.*\|.*sh/i,
-  ],
+  // ═══ Dangerous Command Patterns (DISABLED — fully uncensored mode) ═══
+  dangerousPatterns: [],
 
   // ═══ History ═══
   maxHistoryMessages: 50,

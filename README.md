@@ -21,16 +21,24 @@
 
 Jarvis Cyber is a **fully autonomous AI cybersecurity agent** powered by NVIDIA NIM API. Unlike traditional tools with static playbooks, Jarvis uses **MITRE ATT&CK** and the **Cyber Kill Chain** to dynamically generate attack strategies tailored to each target — no hardcoded scripts, no rigid workflows.
 
-### What's New in v4.0
+> **📖 For deep-dive architecture, data-flow diagrams, and component-level documentation, see [`ARCHITECTURE.md`](ARCHITECTURE.md).**
 
-- **🔌 MCP Server** — Expose all 150+ Kali tools as Model Context Protocol tools via stdio or SSE transport. Any MCP-compatible client (Claude Desktop, Cursor, VS Code, etc.) can use Jarvis as a cybersecurity backend.
-- **📊 Dynamic Report Engine** — Auto-generates structured pentest reports from tool execution history. Includes executive summary, Kill Chain methodology, findings, MITRE ATT&CK mapping, timeline, and recommendations.
-- **🌉 Tool Bridge** — Runtime service discovery that auto-detects running proxies (Burp Suite, ZAP, mitmproxy) and tool services (Metasploit RPC, Interactsh). Routes traffic through active proxies automatically.
-- **🤖 Subagent System** — Spawn background AI agents for parallelizable tasks. The main agent can delegate time-consuming work (recon, brute-force, scraping) to subagents and check results later.
-- **📝 Skills Manager** — Load custom user-created skills from a `skills/` directory with YAML frontmatter and bundled scripts.
-- **🎯 Listener Manager** — Persistent TCP listener for catching reverse shells, with dynamic port conflict detection and interactive shell command execution.
+---
 
-### Key Capabilities
+## ✨ What's New in v4.0
+
+| Feature | Description |
+|---------|-------------|
+| 🔌 **MCP Server** | Expose all 150+ Kali tools as Model Context Protocol tools via **stdio** or **SSE** transport. Any MCP-compatible client (Claude Desktop, Cursor, VS Code) can use Jarvis as a cybersecurity backend. |
+| 📊 **Dynamic Report Engine** | Auto-generates structured pentest reports from tool execution history — executive summary, Kill Chain methodology, findings, MITRE mapping, timeline, and recommendations. |
+| 🌉 **Tool Bridge** | Runtime service discovery that auto-detects running proxies (Burp Suite, ZAP, mitmproxy) and tool services (Metasploit RPC, Interactsh). Routes traffic through active proxies automatically. |
+| 🤖 **Subagent System** | Spawn background AI agents for parallelizable tasks. Delegate time-consuming work (recon, brute-force, scraping) and check results later. |
+| 📝 **Skills Manager** | Load custom user-created skills from a `skills/` directory with YAML frontmatter and bundled scripts. |
+| 🎯 **Listener Manager** | Persistent TCP listener for catching reverse shells, with dynamic port conflict detection and interactive shell command execution. |
+
+---
+
+## 🧠 Key Capabilities
 
 - **🧠 Dynamic Strategy Engine** — Generates custom attack plans using MITRE ATT&CK technique mapping and Cyber Kill Chain phase progression. Every strategy is unique to the target.
 - **🔧 150+ Kali Tool Registry** — Auto-detects installed tools across 12 categories (recon, exploitation, wireless, post-exploitation, etc.) with full usage examples the AI uses to construct commands dynamically.
@@ -85,7 +93,7 @@ jarvis
 
 ### Optional: Passwordless Sudo (for Telegram Bot / Daemon Mode)
 
-Commands like `arp-scan` and `netdiscover` require root. In headless mode (Telegram bot, daemon), Jarvis automatically uses `sudo -n` (non-interactive) to prevent hanging. Configure passwordless sudo for seamless operation:
+Commands like `arp-scan` and `netdiscover` require root. In headless mode (Telegram bot, daemon), Jarvis automatically uses `sudo -n` (non-interactive) to prevent hanging:
 
 ```bash
 echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/jarvis-nopasswd
@@ -96,28 +104,17 @@ sudo chmod 440 /etc/sudoers.d/jarvis-nopasswd
 
 ## 🚀 Usage Modes
 
-### Interactive CLI (Default)
-```bash
-jarvis                    # or: node cli.js
-```
-Type naturally: *"Scan example.com for vulnerabilities"*, *"Find subdomains of target.com"*, *"Exploit the vsftpd service on 192.168.1.5"*
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Interactive CLI** | `jarvis` | Default mode. Chat naturally with Jarvis. |
+| **MCP Server (stdio)** | `jarvis --mcp` | Expose tools for local MCP clients (Claude Desktop, Cursor). |
+| **MCP Server (SSE)** | `jarvis --mcp --port 8888` | Remote MCP server via SSE transport. |
+| **Telegram Bot** | `jarvis --telegram` | Control Jarvis remotely from your phone. |
+| **Background Daemon** | `jarvis --daemon` | 24/7 mode with auto-learning, Telegram bot, heartbeat. |
+| **Single Learn Cycle** | `jarvis --learn` | Run one auto-learning cycle and exit. |
 
-### MCP Server (v4.0) — stdio
-```bash
-jarvis --mcp              # or: node cli.js --mcp
-```
-Exposes all 150+ Kali tools as MCP tools over **stdio transport**. Connect from Claude Desktop, Cursor, or any MCP client.
+### MCP Client Configuration (Claude Desktop)
 
-### MCP Server (v4.0) — SSE (Remote)
-```bash
-jarvis --mcp --port 8888  # or: node cli.js --mcp --port 8888
-```
-Starts an **SSE transport** MCP server on the given port. Endpoints:
-- `GET /sse` — SSE event stream
-- `POST /messages?sessionId=...` — Send messages
-- `GET /health` — Health check with installed tool count and active services
-
-**Example `claude_desktop_config.json`:**
 ```json
 {
   "mcpServers": {
@@ -129,222 +126,36 @@ Starts an **SSE transport** MCP server on the given port. Endpoints:
 }
 ```
 
-### Telegram Bot
-```bash
-jarvis --telegram         # or: node cli.js --telegram
-```
-Control Jarvis remotely from your phone via Telegram.
-
-### Background Daemon (24/7)
-```bash
-jarvis --daemon           # or: node cli.js --daemon
-```
-Runs as a persistent background process with:
-- Auto-learning every 30 minutes
-- Telegram bot
-- Heartbeat task queue
-
-### Single Learning Cycle
-```bash
-jarvis --learn            # or: node cli.js --learn
-```
-Run one auto-learning cycle and exit.
-
 ### Auto-Start on Boot (Systemd)
+
 ```bash
 npm run install-service
-# or
-chmod +x install-service.sh && ./install-service.sh
+# Manage: systemctl --user {status|stop|restart|disable} jarvis
+# Logs:   journalctl --user -u jarvis -f
 ```
-This creates a systemd user service that:
-- Starts automatically when you boot Kali
-- Runs even when you're not logged in
-- Restarts on crashes
-- Logs to `~/.jarvis/daemon.log`
-
-```bash
-# Service management
-systemctl --user status jarvis      # Check status
-systemctl --user stop jarvis        # Stop
-systemctl --user restart jarvis     # Restart
-systemctl --user disable jarvis     # Disable auto-start
-journalctl --user -u jarvis -f     # Live logs
-```
-
----
-
-## 🔌 MCP Server Architecture
-
-The MCP (Model Context Protocol) server dynamically exposes **every installed Kali tool** as an MCP tool, plus core framework tools. Any MCP-compatible AI client can leverage Jarvis's full capabilities.
-
-### Core MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `execute_command` | Run any shell command on the Kali system |
-| `generate_report` | Auto-generate a pentest report from session history |
-| `install_tool` | Dynamically install any security tool |
-| `list_tools` | List all installed tools grouped by category |
-| `scan_services` | Detect running proxies and tool services |
-| `usage_stats` | Session tool usage statistics |
-
-### Dynamic Kali Tools
-
-Every installed Kali tool from the 150+ registry is auto-registered as `kali_<tool_name>` with:
-- Auto-generated parameter schemas (args, target, timeout)
-- MITRE ATT&CK technique mapping in the description
-- Proxy detection for proxy-capable tools
-- Auto-install on first use if missing
-
-### Supported Transports
-
-| Transport | Command | Use Case |
-|-----------|---------|----------|
-| **stdio** | `jarvis --mcp` | Local MCP clients (Claude Desktop, Cursor) |
-| **SSE** | `jarvis --mcp --port 8888` | Remote clients, multi-user, web integrations |
-
----
-
-## 🧠 MITRE ATT&CK & Cyber Kill Chain Integration
-
-Jarvis maps **every action** to the MITRE ATT&CK Enterprise Matrix and follows the Cyber Kill Chain methodology for structured offensive operations.
-
-### Kill Chain Phases
-
-| Phase | Name | MITRE Tactic | Description |
-|-------|------|-------------|-------------|
-| 1 | Reconnaissance | TA0043 | Target research, OSINT, network mapping |
-| 2 | Weaponization | TA0042 | Payload generation, C2 setup, exploit preparation |
-| 3 | Delivery | TA0001 | Exploit delivery via web, phishing, social engineering |
-| 4 | Exploitation | TA0002 | Code execution, vulnerability exploitation |
-| 5 | Installation | TA0003, TA0004 | Persistence, privilege escalation, backdoors |
-| 6 | Command & Control | TA0011 | Encrypted C2 channels, tunneling, pivoting |
-| 7 | Actions on Objectives | TA0007-TA0010 | Lateral movement, data exfiltration, credential harvesting |
-
-### Dynamic Strategy Generation
-
-Instead of hardcoded playbooks, Jarvis generates strategies **on the fly** based on:
-- Discovered target environment (ports, services, OS, tech stack)
-- MITRE ATT&CK technique applicability
-- Currently installed tools on your system
-- Previous findings stored in memory
-- WAF/firewall detection and evasion requirements
-
-**Supported Objective Types:**
-- Full Penetration Test
-- Web Application Security Assessment
-- Network/Infrastructure Pentest
-- Active Directory Attack
-- Wireless Network Assessment
-- Cloud Security Audit (AWS/Azure/GCP)
-- Social Engineering Campaign
-- Privilege Escalation
-- Reverse Engineering / Malware Analysis
 
 ---
 
 ## 🔧 150+ Kali Tool Registry
 
-Jarvis auto-detects installed tools and constructs commands dynamically with full usage examples. All tools are executed via `execute_command` — the AI builds the exact command syntax from its built-in knowledge base.
+Jarvis auto-detects installed tools and constructs commands dynamically. Full registry covers **12 categories**:
 
-### Information Gathering (20+)
-| Tool | Description | MITRE |
-|------|-------------|-------|
-| nmap | Network scanning, service/OS detection, NSE scripting | T1595, T1046 |
-| masscan | Ultra-fast Internet-scale port scanner (10M pps) | T1595 |
-| amass | Attack surface mapping and asset discovery | T1590, T1593 |
-| subfinder | Passive subdomain enumeration from 30+ sources | T1590 |
-| theHarvester | Email, subdomain, IP harvesting | T1589, T1593 |
-| enum4linux | Windows and Samba enumeration | T1087, T1135 |
-| whatweb | Web technology identification (1800+ plugins) | T1592 |
-| wafw00f | WAF fingerprinting (150+ signatures) | T1590 |
-| arp-scan | Local network ARP discovery | T1018 |
-| netdiscover | Active/passive ARP network discovery | T1018 |
+| Category | Examples | Count |
+|----------|----------|-------|
+| Information Gathering | nmap, masscan, amass, subfinder, theHarvester | 20+ |
+| Web Application | sqlmap, nuclei, nikto, gobuster, ffuf, wpscan | 15+ |
+| Password Attacks | hydra, john, hashcat, medusa, cewl | 10+ |
+| Exploitation | metasploit, msfvenom, searchsploit, crackmapexec | 10+ |
+| Wireless Attacks | aircrack-ng, wifite, bettercap, reaver | 8+ |
+| Post-Exploitation | linpeas, bloodhound, chisel, proxychains | 8+ |
+| Sniffing & Spoofing | responder, ettercap, tshark | 5+ |
+| Reverse Engineering | ghidra, radare2, binwalk | 5+ |
+| Forensics | volatility3, steghide, exiftool | 5+ |
+| Social Engineering | setoolkit, gophish | 3+ |
+| Evasion | veil, shellter, tor | 3+ |
+| General Utilities | curl, wget, python3, socat | 10+ |
 
-### Web Application (15+)
-| Tool | Description | MITRE |
-|------|-------------|-------|
-| sqlmap | Automatic SQL injection and database takeover | T1190 |
-| nuclei | Template-based vulnerability scanner (8000+ templates) | T1190, T1595 |
-| nikto | Web server vulnerability scanner (6700+ checks) | T1190 |
-| gobuster | Directory/file/DNS/vhost brute-forcing | T1595 |
-| ffuf | Fast web fuzzer — content/parameter discovery | T1595 |
-| wpscan | WordPress security scanner | T1190 |
-| burpsuite | Web app security testing platform | T1190 |
-| commix | Automated command injection exploitation | T1190 |
-| dalfox | Parameter analysis and XSS scanner | T1190 |
-
-### Password Attacks (10+)
-| Tool | Description | MITRE |
-|------|-------------|-------|
-| hydra | Fast network logon cracker (50+ protocols) | T1110 |
-| john | John the Ripper password cracker | T1110 |
-| hashcat | GPU-accelerated hash cracking (300+ types) | T1110 |
-| medusa | Parallel network login auditor | T1110 |
-| cewl | Custom wordlist generator from web pages | T1110 |
-
-### Exploitation (10+)
-| Tool | Description | MITRE |
-|------|-------------|-------|
-| metasploit | World's most used penetration testing framework | T1190, T1203 |
-| msfvenom | Payload generator and encoder | T1587 |
-| searchsploit | Offline exploit-db search (45000+ exploits) | T1588 |
-| crackmapexec | Swiss army knife for AD/Windows pentesting | T1021 |
-| evil-winrm | WinRM shell for pentesting | T1021 |
-| impacket | Python AD attack toolkit (psexec, secretsdump, etc.) | T1021, T1003 |
-
-### Wireless Attacks (8+)
-| Tool | Description | MITRE |
-|------|-------------|-------|
-| aircrack-ng | WiFi security audit suite — WPA/WPA2 cracking | T1595 |
-| wifite | Automated WiFi auditing | T1595 |
-| bettercap | Network MITM framework (WiFi, BLE, HID) | T1557 |
-| reaver | WPS PIN brute force attack | T1110 |
-
-### Post-Exploitation & Tunneling
-| Tool | Description | MITRE |
-|------|-------------|-------|
-| linpeas | Linux privilege escalation audit | T1068 |
-| bloodhound | AD attack path visualization | T1087, T1482 |
-| chisel | Fast TCP/UDP tunnel over HTTP | T1572 |
-| proxychains | TCP connection proxy chaining | T1090 |
-| socat | Multipurpose bidirectional data relay | T1572 |
-
-### Plus More...
-Sniffing & Spoofing (responder, ettercap, tshark), Reverse Engineering (ghidra, radare2, binwalk), Forensics (volatility3, steghide, exiftool), Social Engineering (setoolkit, gophish), Evasion (veil, shellter, tor), and General Utilities.
-
-> **Missing a tool?** Jarvis will auto-install it via `install_tool` from apt, pip, go, GitHub, or direct URL.
-
----
-
-## 📦 Dynamic Tool Installer & Self-Healing
-
-Jarvis can install any missing security tool on the fly:
-
-```
-You: "Use gobuster to brute-force directories on http://target.com"
-Jarvis: ⚡ [SELF-HEAL] gobuster not found → auto-installing via apt...
-        ✅ Installed successfully. Retrying command...
-```
-
-### Self-Healing Error Recovery
-When a command fails due to a missing dependency, Jarvis:
-1. **Detects** the error pattern (`command not found`, `ModuleNotFoundError`, `Cannot find module`)
-2. **Auto-installs** the missing package via the appropriate package manager
-3. **Clears** the anti-loop failure memory so the command can be retried
-4. **Retries** the exact same command — this time it works
-
-### Supported Install Methods
-| Method | Source | Example |
-|--------|--------|---------|
-| `apt` | Kali/Debian packages | `nmap`, `sqlmap`, `hydra` |
-| `pip` | Python packages | `pwntools`, `impacket`, `volatility3` |
-| `go` | Go modules | `nuclei`, `ffuf`, `gobuster` |
-| `npm` | Node.js packages | Custom Node.js tools |
-| `gem` | Ruby gems | `evil-winrm` |
-| `cargo` | Rust packages | Rust-based tools |
-| `github` | Clone + auto-build | Any GitHub repo |
-| `url` | Direct download | Binaries, scripts, archives |
+> **Missing a tool?** Jarvis auto-installs it via `install_tool` from apt, pip, go, npm, gem, cargo, GitHub, or direct URL.
 
 ---
 
@@ -352,130 +163,105 @@ When a command fails due to a missing dependency, Jarvis:
 
 These are native tools with dedicated implementations (not CLI wrappers):
 
-### Core System
-| Tool | Command | Description |
-|------|---------|-------------|
-| Read File | `read_file` | Read file contents |
-| Write File | `write_file` | Create/overwrite files |
-| Edit File | `edit_file` | Search-and-replace in files |
-| Execute Command | `execute_command` | Run shell commands with streaming output |
-| List Directory | `list_directory` | Directory listing with metadata |
-| Search Files | `search_files` | Regex search across files |
-| Search Glob | `search_glob` | Glob pattern file search |
-| BG Interact | `bg_interact` | Interact with background processes |
-| Start Listener | `start_listener` | Launch reverse shell listeners |
-| Check Port | `check_port` | TCP port connectivity check |
-| Install Tool | `install_tool` | Dynamic tool installation |
+<details>
+<summary><strong>Core System (11 tools)</strong></summary>
 
-### Search & Intelligence
-| Tool | Command | Description |
-|------|---------|-------------|
-| Web Search | `web_search` | DuckDuckGo search |
-| Tavily Search | `tavily_search` | AI-powered deep search |
-| GitHub Search | `github_search` | GitHub code/repo search |
-| Read URL | `read_url` | Web page content extraction |
-| Stealth Browser | `stealth_browser` | Headless browser automation |
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read file contents |
+| `write_file` | Create/overwrite files |
+| `edit_file` | Search-and-replace in files |
+| `execute_command` | Run shell commands with streaming output |
+| `list_directory` | Directory listing with metadata |
+| `search_files` | Regex search across files |
+| `search_glob` | Glob pattern file search |
+| `bg_interact` | Interact with background processes |
+| `start_listener` | Launch reverse shell listeners |
+| `check_port` | TCP port connectivity check |
+| `install_tool` | Dynamic tool installation |
 
-### Reconnaissance (API-Based)
-| Tool | Command | Description |
-|------|---------|-------------|
-| Shodan Search | `shodan_search` | Internet-wide device search |
-| FOFA Search | `fofa_search` | FOFA cyberspace search engine |
-| DNS Recon | `dns_recon` | DNS enumeration |
-| WHOIS Lookup | `whois_lookup` | Domain registration info |
-| CVE Lookup | `cve_lookup` | CVE details from NVD |
-| Wayback Machine | `wayback_machine` | Historical URL data |
+</details>
 
-### ProjectDiscovery Suite
-| Tool | Command | Description |
-|------|---------|-------------|
-| Nuclei | `nuclei_scan` | 8000+ vulnerability templates |
-| Subfinder | `subfinder_enum` | Passive subdomain enumeration |
-| Httpx | `httpx_probe` | HTTP probing & tech detection |
-| Naabu | `naabu_scan` | Fast port scanning |
-| Katana | `katana_crawl` | Web crawler & spider |
-| Dnsx | `dnsx_resolve` | DNS resolution toolkit |
-| Uncover | `uncover_search` | Multi-engine search aggregator |
+<details>
+<summary><strong>Search & Intelligence (5 tools)</strong></summary>
 
-### Reporting & Orchestration (v4.0)
-| Tool | Command | Description |
-|------|---------|-------------|
-| Generate Report | `generate_report` | Auto-generate structured pentest reports |
-| Spawn Subagent | `spawn_subagent` | Launch background AI agent for parallel tasks |
-| Check Subagent | `check_subagent_status` | Check subagent progress and results |
-| List Subagents | `list_subagents` | View all background agents |
+| Tool | Description |
+|------|-------------|
+| `web_search` | DuckDuckGo search |
+| `tavily_search` | AI-powered deep search |
+| `github_search` | GitHub code/repo search |
+| `read_url` | Web page content extraction |
+| `stealth_browser` | Headless browser automation |
 
-### Utilities
-| Tool | Command | Description |
-|------|---------|-------------|
-| Encode/Decode | `encode_decode` | Encoding utilities (base64, hex, URL, etc.) |
-| Hash Generate | `hash_generate` | Hash generation (MD5, SHA, etc.) |
-| Save Artifact | `save_artifact` | Save scan results/reports to disk |
-| Memory Store | `memory_store` | Store/retrieve data from persistent memory |
-| Metasploit RPC | `metasploit_rpc` | Metasploit Framework integration |
+</details>
 
----
+<details>
+<summary><strong>Reconnaissance — API-Based (6 tools)</strong></summary>
 
-## 🌉 Tool Bridge — Runtime Service Discovery
+| Tool | Description |
+|------|-------------|
+| `shodan_search` | Internet-wide device search |
+| `fofa_search` | FOFA cyberspace search engine |
+| `dns_recon` | DNS enumeration |
+| `whois_lookup` | Domain registration info |
+| `cve_lookup` | CVE details from NVD |
+| `wayback_machine` | Historical URL data |
 
-The Tool Bridge automatically detects running security tool services and routes traffic through active proxies.
+</details>
 
-### Auto-Detected Services
+<details>
+<summary><strong>ProjectDiscovery Suite (7 tools)</strong></summary>
 
-| Service | Port | Type | Auto-Action |
-|---------|------|------|-------------|
-| Burp Suite Proxy | 8080 | HTTP Proxy | Routes all HTTP traffic through Burp |
-| OWASP ZAP Proxy | 8090 | HTTP Proxy | Routes traffic through ZAP |
-| mitmproxy | 8081 | HTTP Proxy | Routes traffic through mitmproxy |
-| Metasploit RPC | 55553 | RPC | Enables `metasploit_rpc` tool |
-| Burp Suite MCP | 9876 | MCP | Connects to Burp's MCP server |
-| Burp Collaborator | 9090 | OOB | Out-of-band interaction server |
-| Interactsh Server | 8553 | OOB | ProjectDiscovery OOB server |
+| Tool | Description |
+|------|-------------|
+| `nuclei_scan` | 8000+ vulnerability templates |
+| `subfinder_enum` | Passive subdomain enumeration |
+| `httpx_probe` | HTTP probing & tech detection |
+| `naabu_scan` | Fast port scanning |
+| `katana_crawl` | Web crawler & spider |
+| `dnsx_resolve` | DNS resolution toolkit |
+| `uncover_search` | Multi-engine search aggregator |
 
-### How It Works
-1. **Scans** all known ports every 30 seconds
-2. **Detects** running services via TCP probe
-3. **Injects context** into the AI's system prompt (active proxies, services)
-4. **Auto-routes** stealth browser and curl traffic through active proxy
-5. **Logs telemetry** — tracks tool usage, success rates, and MITRE technique mapping
+</details>
 
----
+<details>
+<summary><strong>Reporting & Orchestration — v4.0 (4 tools)</strong></summary>
 
-## 📊 Dynamic Report Engine
+| Tool | Description |
+|------|-------------|
+| `generate_report` | Auto-generate structured pentest reports |
+| `spawn_subagent` | Launch background AI agent for parallel tasks |
+| `check_subagent_status` | Check subagent progress and results |
+| `list_subagents` | View all background agents |
 
-After any security assessment, Jarvis can auto-generate a comprehensive pentest report:
+</details>
 
-```
-You: "Generate a report for this assessment"
-Jarvis: 📊 Report generated → jarvis-output/reports/report_example_com_1716950000.md
-```
+<details>
+<summary><strong>Utilities (5 tools)</strong></summary>
 
-### Report Sections
-- **Executive Summary** — Automated from tool execution stats
-- **Methodology** — Kill Chain phases actually executed
-- **Findings** — Auto-classified vulnerabilities with severity ratings
-- **Tool Usage Breakdown** — Per-tool call counts, success rates, categories
-- **MITRE ATT&CK Mapping** — Technique IDs mapped from every tool execution
-- **Execution Timeline** — Chronological tool-by-tool execution log
-- **Recommendations** — Generated based on findings and phases
+| Tool | Description |
+|------|-------------|
+| `encode_decode` | Encoding utilities (base64, hex, URL, etc.) |
+| `hash_generate` | Hash generation (MD5, SHA, etc.) |
+| `save_artifact` | Save scan results/reports to disk |
+| `memory_store` | Store/retrieve data from persistent memory |
+| `metasploit_rpc` | Metasploit Framework integration |
+
+</details>
 
 ---
 
-## 🧠 24/7 Auto-Learning
+## 🔑 API Keys Setup
 
-Jarvis continuously learns from the internet while running as a daemon:
-
-| Source | Data | Frequency |
-|--------|------|-----------|
-| NVD API | Latest CVEs | Every hour |
-| CISA KEV | Known Exploited Vulnerabilities | Daily |
-| Exploit-DB | New exploits | Every hour |
-| abuse.ch | Malware samples, IOCs, malicious URLs | Every hour |
-| GitHub Advisories | Security advisories | Every hour |
-| Nuclei Templates | New CVE detection templates | Daily |
-| HackerNews | Security news | Every hour |
-
-All data is stored in a local **SQLite database** with persistent tables for knowledge, targets, conversations, cache, strategies, scan results, threat intel, and more.
+| Key | Required | Get It |
+|-----|----------|--------|
+| `NVIDIA_API_KEY` | ✅ **REQUIRED** | [build.nvidia.com](https://build.nvidia.com) |
+| `TELEGRAM_BOT_TOKEN` | For Telegram mode | [@BotFather](https://t.me/BotFather) |
+| `SHODAN_API_KEY` | Recommended | [shodan.io](https://shodan.io) |
+| `TAVILY_API_KEY` | Recommended | [tavily.com](https://tavily.com) |
+| `VIRUSTOTAL_API_KEY` | Optional | [virustotal.com](https://virustotal.com) |
+| `FOFA_EMAIL` + `FOFA_API_KEY` | Optional | [fofa.info](https://fofa.info) |
+| `PDCP_API_KEY` | Optional | [cloud.projectdiscovery.io](https://cloud.projectdiscovery.io) |
 
 ---
 
@@ -487,6 +273,7 @@ Cyber-Security-Agentic-Framework/
 ├── package.json                    # Dependencies & npm scripts
 ├── install-service.sh              # Systemd auto-start installer
 ├── .env.example                    # Environment template
+├── ARCHITECTURE.md                 # Deep-dive technical documentation
 ├── src/
 │   ├── agent.js                    # OODA agentic loop with anti-loop intelligence
 │   ├── api.js                      # NVIDIA NIM API client (streaming)
@@ -549,20 +336,6 @@ Cyber-Security-Agentic-Framework/
 
 ---
 
-## 🔑 API Keys Setup
-
-| Key | Required | Get It |
-|-----|----------|--------|
-| `NVIDIA_API_KEY` | ✅ **REQUIRED** | [build.nvidia.com](https://build.nvidia.com) |
-| `TELEGRAM_BOT_TOKEN` | For Telegram mode | [@BotFather](https://t.me/BotFather) |
-| `SHODAN_API_KEY` | Recommended | [shodan.io](https://shodan.io) |
-| `TAVILY_API_KEY` | Recommended | [tavily.com](https://tavily.com) |
-| `VIRUSTOTAL_API_KEY` | Optional | [virustotal.com](https://virustotal.com) |
-| `FOFA_EMAIL` + `FOFA_API_KEY` | Optional | [fofa.info](https://fofa.info) |
-| `PDCP_API_KEY` | Optional | [cloud.projectdiscovery.io](https://cloud.projectdiscovery.io) |
-
----
-
 ## 📋 REPL Commands
 
 | Command | Description |
@@ -587,57 +360,6 @@ npm test
 # or
 node tests/test-all.js
 ```
-
----
-
-## 🏗️ Architecture Highlights
-
-### Agent Loop (`src/agent.js`)
-- **OODA Loop** — Observe → Orient → Decide → Act
-- **Sequential tool execution** — Prevents race conditions from parallel tool calls
-- **Network auto-retry** — 10 retries with 30s backoff on API disconnection
-- **Auto-compaction** — Compresses history when it exceeds token limits
-- **Chain-of-thought reasoning** — Supports streaming `<think>` token output
-
-### Anti-Loop Intelligence
-- **Signature tracking** — Blocks exact-duplicate failed commands after 2 attempts
-- **Consecutive failure cap** — Stops after 15 consecutive failures across all tools
-- **Dynamic retry reset** — File modifications clear failure memory (enables fix → retry cycles)
-- **Soft failure exclusion** — Network timeouts and recon exit codes aren't counted as failures
-
-### MCP Server (`src/mcp-server.js`)
-- **Dynamic tool registration** — Reads from `kali-tools-registry.js` and auto-registers each installed tool
-- **Dual transport** — stdio for local clients, SSE with Express for remote access
-- **Health endpoint** — `/health` returns installed tool count, active services, and proxy status
-- **Auto-install** — Missing tools are installed on first MCP call
-
-### Tool Bridge (`src/tool-bridge.js`)
-- **Service discovery** — Batch TCP port probing for all known security tool services
-- **Proxy priority** — Burp Suite > ZAP > mitmproxy for automatic traffic routing
-- **Session telemetry** — Logs every tool call with MITRE ATT&CK mapping
-- **Dynamic system prompt injection** — Active services appear in the AI's context automatically
-
-### Report Engine (`src/report-engine.js`)
-- **Auto-classification** — Categorizes tool executions into Kill Chain phases automatically
-- **Vulnerability detection** — Pattern-matches tool output for common vulnerability indicators
-- **MITRE mapping** — Maps every tool execution to ATT&CK technique IDs
-- **Markdown output** — Clean, structured reports saved to `jarvis-output/reports/`
-
-### Subagent System (`src/subagent-manager.js`)
-- **Fire-and-forget** — Spawn background agents that run independently
-- **Full tool access** — Subagents have the same 35 tools as the main agent
-- **Status tracking** — Check progress, read output logs, or kill stalled agents
-- **Log files** — Results written to `.subagents/<id>.log`
-
-### Sudo Non-Interactive Fix (`src/tools/execute-command.js`)
-- All `sudo` commands are automatically rewritten to `sudo -n` (non-interactive)
-- Prevents Telegram bot and daemon from hanging on password prompts
-- If sudo fails, the AI receives a clear error with instructions to configure passwordless sudo
-
-### Semantic Execution Cache
-- Caches recon tool results (nmap, nuclei, WHOIS, DNS, etc.) to avoid duplicate scans
-- Configurable TTL: 24h for DNS/WHOIS, 2h for port scans
-- Cache key is `tool:arguments` — same exact query returns instantly
 
 ---
 

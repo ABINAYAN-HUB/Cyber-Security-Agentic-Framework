@@ -1,6 +1,6 @@
 // Core Agent Loop — gathers context, acts via tools, verifies, repeats
 import { streamChat } from './api.js';
-import { toolDefinitions, toolExecutors, safeTools, writeTools, dangerousTools } from './tools/index.js';
+import { toolDefinitions, toolExecutors } from './tools/index.js';
 import { buildSystemPrompt } from './system-prompt.js';
 import config from './config.js';
 import * as ui from './ui.js';
@@ -130,7 +130,7 @@ export class Agent {
           }
           fullText += chunk.content;
           if (!this.isSubagent) ui.printStreamChunk(chunk.content);
-          if (onUpdate) onUpdate({ type: 'text', content: chunk.content });
+          if (onUpdate) await onUpdate({ type: 'text', content: chunk.content });
         }
 
         // Print thinking/reasoning tokens but don't add them to fullText history
@@ -140,7 +140,7 @@ export class Agent {
             spinnerStopped = true;
           }
           if (!this.isSubagent) ui.printThinkingChunk(chunk.content);
-          if (onUpdate) onUpdate({ type: 'thinking', content: chunk.content });
+          if (onUpdate) await onUpdate({ type: 'thinking', content: chunk.content });
           continue;
         }
 
@@ -234,7 +234,7 @@ export class Agent {
 
     // Show the tool call
     if (!this.isSubagent) ui.printToolCall(name, args);
-    if (onTool) onTool({ type: 'start', name, args });
+    if (onTool) await onTool({ type: 'start', name, args });
 
     // Check permissions
     const executor = toolExecutors[name];
@@ -335,7 +335,7 @@ export class Agent {
 
       this._addToolResult(toolCall.id, name, result);
       if (!this.isSubagent) ui.printToolResult(name, result);
-      if (onTool) onTool({ type: 'done', name, args, result });
+      if (onTool) await onTool({ type: 'done', name, args, result });
 
       // ═══ TOOL TELEMETRY — Log execution for report generation ═══
       toolBridge.logToolUsage(name, args, result, Date.now() - execStart);
@@ -366,52 +366,24 @@ export class Agent {
         };
         this._addToolResult(toolCall.id, name, healResult);
         if (!this.isSubagent) ui.printToolResult(name, healResult);
-        if (onTool) onTool({ type: 'done', name, args, result: healResult });
+        if (onTool) await onTool({ type: 'done', name, args, result: healResult });
         return;
       }
 
       const errorResult = { success: false, error: error.message };
       this._addToolResult(toolCall.id, name, errorResult);
       if (!this.isSubagent) ui.printToolResult(name, errorResult);
-      if (onTool) onTool({ type: 'done', name, args, result: errorResult });
+      if (onTool) await onTool({ type: 'done', name, args, result: errorResult });
     }
   }
 
   /**
    * Check if a tool call requires permission and prompt the user.
+   * UNCENSORED MODE: All tools and commands are auto-approved.
    */
   async _checkPermission(toolName, args) {
-    if (this.isSubagent) return true; // Subagents inherit auto-approved sandbox implicitly to not hang the logic
-
-    // Safe tools — auto-approve
-    if (safeTools.has(toolName) && config.autoApproveReadTools) {
-      return true;
-    }
-
-    // Write tools
-    if (writeTools.has(toolName) && config.autoApproveWriteTools) {
-      return true;
-    }
-
-    // Auto-approve if configured
-    if (toolName === 'execute_command' && config.autoApproveCommands) {
-      return true;
-    }
-
-    // Dangerous commands — check patterns
-    let isDangerous = false;
-    if (toolName === 'execute_command' && args.command) {
-      isDangerous = config.dangerousPatterns.some(p => p.test(args.command));
-    }
-
-    // Prompt user
-    ui.printPermissionRequest(toolName, args);
-    if (isDangerous) {
-      console.log(ui.colors.danger('     ⚠️  This command matches a DANGEROUS pattern!'));
-    }
-    
-    const answer = await this._promptYesNo('     Allow? (y/n): ');
-    return answer;
+    // Fully uncensored — auto-approve everything, no dangerous pattern checks
+    return true;
   }
 
   /**
