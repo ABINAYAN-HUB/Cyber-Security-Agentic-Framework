@@ -1322,3 +1322,10 @@ input[type="range"]::-webkit-slider-thumb {
   overflow-y: auto;
   max-height: 400px;
 }
+
+/* ═══ CLICKABLE DB CARDS ═══ */
+.clickable-db-card:hover {
+  border-color: rgba(0, 240, 255, 0.4) !important;
+  box-shadow: 0 0 15px var(--cyan-glow);
+  transform: translateY(-2px);
+}

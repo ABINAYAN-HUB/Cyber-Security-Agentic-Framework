@@ -193,7 +193,13 @@ export async function startWebServer(options = {}) {
         const results = memory.getTarget(id);
         res.json({ results });
       } else {
-        res.json({ results: [] });
+        const results = memory.db.prepare('SELECT * FROM targets ORDER BY created_at DESC').all();
+        res.json({
+          results: results.map(r => {
+            try { r.data = JSON.parse(r.data); } catch {}
+            return r;
+          })
+        });
       }
     } catch (err) {
       res.json({ results: [], error: err.message });
@@ -204,7 +210,10 @@ export async function startWebServer(options = {}) {
   app.get('/api/loot', (req, res) => {
     try {
       const { target } = req.query;
-      const results = memory.getLoot(target || null);
+      const results = memory.getLoot(target || null).map(r => {
+        try { r.data = JSON.parse(r.data); } catch {}
+        return r;
+      });
       res.json({ results });
     } catch (err) {
       res.json({ results: [], error: err.message });
@@ -307,6 +316,24 @@ export async function startWebServer(options = {}) {
       res.json({ reports: files });
     } catch (err) {
       res.json({ reports: [], error: err.message });
+    }
+  });
+
+  // Download report
+  app.get('/api/reports/download/:filename', (req, res) => {
+    try {
+      const filename = req.params.filename;
+      if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        return res.status(400).json({ error: 'Invalid filename' });
+      }
+      const reportsDir = join(config.outputDir, 'reports');
+      const filePath = join(reportsDir, filename);
+      if (!existsSync(filePath)) {
+        return res.status(404).json({ error: 'Report not found' });
+      }
+      res.download(filePath);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
     }
   });
 

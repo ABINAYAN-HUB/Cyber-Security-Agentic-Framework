@@ -65,8 +65,8 @@ export class ReportsView {
       reportsListHtml = reports.map(f => `
         <div class="flex items-center gap-3" style="padding:var(--sp-2) 0; border-bottom:1px solid var(--border-subtle);">
           <span>📝</span>
-          <span class="text-mono text-sm" style="flex:1;">${f}</span>
-          <span class="badge info">Markdown</span>
+          <span class="text-mono text-sm truncate" style="flex:1;" title="${f}">${f}</span>
+          <a class="btn btn-sm btn-secondary" href="/api/reports/download/${encodeURIComponent(f)}" download>⬇️ Download</a>
         </div>
       `).join('');
     } else {
@@ -118,7 +118,7 @@ export class ReportsView {
             </button>
             ${log.length === 0 ? '<div class="text-xs text-muted">Run some tools first to generate a report from execution data.</div>' : ''}
           </div>
-          <div id="report-result" style="margin-top:var(--sp-4);"></div>
+          <div id="report-result"></div>
         </div>
 
         <!-- Past Reports -->
@@ -165,21 +165,22 @@ export class ReportsView {
         Toast.success(`Report generated: ${result.filename}`);
         if (resultEl) {
           resultEl.innerHTML = `
-            <div class="glass-panel" style="border-color:rgba(16,185,129,0.3);">
+            <div class="glass-panel" style="border-color:rgba(16,185,129,0.3); margin-top:var(--sp-4);">
               <div class="flex items-center gap-2 mb-2">
                 <span class="badge success">Generated</span>
-                <span class="text-mono text-sm">${result.filename}</span>
+                <span class="text-mono text-sm truncate" style="max-width:200px;" title="${result.filename}">${result.filename}</span>
               </div>
-              <div class="text-sm text-muted">
+              <div class="text-sm text-muted mb-3">
                 ${result.tools_used} tools · ${result.total_executions} executions · ${result.findings_count} findings · ${(result.report_length / 1024).toFixed(1)}KB
               </div>
+              <a class="btn btn-primary" href="/api/reports/download/${encodeURIComponent(result.filename)}" download style="width:100%;">⬇️ Download Report File</a>
             </div>
           `;
         }
       } else {
         Toast.error(result?.error || 'Failed to generate report');
         if (resultEl) {
-          resultEl.innerHTML = `<div class="text-sm text-rose">${result?.error || 'Unknown error'}</div>`;
+          resultEl.innerHTML = `<div class="text-sm text-rose" style="margin-top:var(--sp-4);">⚠️ ${result?.error || 'Unknown error'}</div>`;
         }
       }
     });

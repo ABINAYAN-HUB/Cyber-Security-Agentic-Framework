@@ -1,5 +1,6 @@
 // Jarvis Cyber — Dashboard View
 import { Chart } from '../components/chart.js';
+import { Modal } from '../components/modal.js';
 
 export class DashboardView {
   constructor(app) {
@@ -23,6 +24,9 @@ export class DashboardView {
 
     // Animate counters
     this.animateCounters();
+
+    // Setup db cards click handlers
+    this.setupDbCardHandlers();
 
     // Auto-refresh every 30s
     this.refreshInterval = setInterval(() => this.refreshData(container), 30000);
@@ -274,7 +278,7 @@ export class DashboardView {
     ];
 
     return tables.map(t => `
-      <div style="background:var(--bg-elevated);padding:var(--sp-3);border-radius:var(--radius-md);border:1px solid var(--border-subtle);text-align:center;">
+      <div class="clickable-db-card" data-table="${t.key}" style="background:var(--bg-elevated);padding:var(--sp-3);border-radius:var(--radius-md);border:1px solid var(--border-subtle);text-align:center;cursor:pointer;transition:all var(--transition-fast);">
         <div style="font-size:1.3rem;margin-bottom:var(--sp-1);">${t.icon}</div>
         <div class="text-mono" style="font-size:1.1rem;font-weight:800;color:var(--text-primary);">${this.formatNumber(s[t.key] || 0)}</div>
         <div class="text-xs text-muted">${t.name}</div>
@@ -319,5 +323,138 @@ export class DashboardView {
         if (current >= target) clearInterval(interval);
       }, 30);
     });
+  }
+
+  setupDbCardHandlers() {
+    document.querySelectorAll('.clickable-db-card').forEach(card => {
+      card.addEventListener('click', async () => {
+        const table = card.dataset.table;
+        const title = card.querySelector('.text-xs').textContent + ' Database Records';
+        
+        const previewable = ['loot', 'targets', 'scan_results', 'operations'];
+        if (!previewable.includes(table)) {
+          Modal.show(title, `<div class="text-sm text-muted" style="padding:var(--sp-4);">Table preview not supported in Web UI. Use the CLI interface to query details for the table <strong>${table}</strong>.</div>`);
+          return;
+        }
+
+        let contentHtml = '<div class="flex items-center gap-2" style="padding:var(--sp-4);"><div class="spinner"></div><span>Loading records...</span></div>';
+        const modal = Modal.show(title, contentHtml, { width: '650px' });
+
+        try {
+          let data = null;
+          if (table === 'loot') {
+            data = await this.app.api('/loot');
+          } else if (table === 'targets') {
+            data = await this.app.api('/targets');
+          } else if (table === 'scan_results') {
+            data = await this.app.api('/scan-results');
+          } else if (table === 'operations') {
+            data = await this.app.api('/operations');
+          }
+
+          if (data && data.results && data.results.length > 0) {
+            contentHtml = this.buildTableModalHTML(table, data.results);
+          } else {
+            contentHtml = '<div class="text-sm text-muted" style="padding:var(--sp-4);">No records found.</div>';
+          }
+        } catch (err) {
+          contentHtml = `<div class="text-sm text-rose" style="padding:var(--sp-4);">Error loading records: ${err.message}</div>`;
+        }
+
+        modal.querySelector('.modal-body').innerHTML = contentHtml;
+      });
+    });
+  }
+
+  buildTableModalHTML(table, results) {
+    if (table === 'loot') {
+      return `
+        <div class="scroll-container" style="max-height:450px;">
+          <table class="data-table">
+            <thead><tr><th>Target</th><th>Type</th><th>Credentials / Loot</th><th>Date</th></tr></thead>
+            <tbody>
+              ${results.slice(0, 20).map(r => {
+                const lootVal = typeof r.data === 'object' ? JSON.stringify(r.data, null, 2) : r.data;
+                return `
+                  <tr>
+                    <td><span class="text-cyan font-semibold">${r.target || 'Global'}</span></td>
+                    <td><span class="badge info">${r.type}</span></td>
+                    <td><pre class="code-block" style="font-size:0.75rem;padding:var(--sp-2) var(--sp-3);margin:0;max-height:100px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">${lootVal}</pre></td>
+                    <td class="mono text-muted text-xs" style="white-space:nowrap;">${r.created_at?.slice(0, 19) || '—'}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    if (table === 'targets') {
+      return `
+        <div class="scroll-container" style="max-height:450px;">
+          <table class="data-table">
+            <thead><tr><th>Identifier</th><th>Type</th><th>Details</th><th>Source</th></tr></thead>
+            <tbody>
+              ${results.slice(0, 20).map(r => {
+                const details = typeof r.data === 'object' ? JSON.stringify(r.data, null, 2) : r.data;
+                return `
+                  <tr>
+                    <td><span class="text-cyan font-semibold">${r.identifier}</span></td>
+                    <td><span class="badge info">${r.type}</span></td>
+                    <td><pre class="code-block" style="font-size:0.75rem;padding:var(--sp-2) var(--sp-3);margin:0;max-height:100px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">${details}</pre></td>
+                    <td><span class="tag">${r.source || 'manual'}</span></td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    if (table === 'scan_results') {
+      return `
+        <div class="scroll-container" style="max-height:450px;">
+          <table class="data-table">
+            <thead><tr><th>Target</th><th>Scanner</th><th>Ports</th><th>Vulns</th><th>OS</th></tr></thead>
+            <tbody>
+              ${results.slice(0, 20).map(r => `
+                <tr>
+                  <td><span class="text-cyan font-semibold">${r.target}</span></td>
+                  <td><span class="badge info">${r.scanner}</span></td>
+                  <td class="mono text-xs">${r.ports || '—'}</td>
+                  <td style="max-width:150px;" class="truncate" title="${r.vulns || ''}">${r.vulns || '—'}</td>
+                  <td><span class="tag">${r.os_detected || '—'}</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    if (table === 'operations') {
+      return `
+        <div class="scroll-container" style="max-height:450px;">
+          <table class="data-table">
+            <thead><tr><th>Type</th><th>Target</th><th>Tool</th><th>Status</th><th>Summary</th></tr></thead>
+            <tbody>
+              ${results.slice(0, 20).map(r => `
+                <tr>
+                  <td><span class="badge info">${r.op_type}</span></td>
+                  <td class="mono text-xs" style="white-space:nowrap;">${r.target || '—'}</td>
+                  <td><span class="text-cyan font-semibold">${r.tool_name}</span></td>
+                  <td><span class="badge ${r.status === 'completed' ? 'success' : r.status === 'failed' ? 'danger' : 'warning'}">${r.status}</span></td>
+                  <td style="max-width:150px;" class="truncate" title="${r.result_summary || ''}">${r.result_summary || '—'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    return '<div class="text-sm text-muted">Preview not supported for this table.</div>';
   }
 }
