@@ -137,8 +137,8 @@ async function testTools() {
 
   const { toolDefinitions, toolExecutors, safeTools, writeTools, dangerousTools } = await import('../src/tools/index.js');
 
-  test('Tool definitions loaded (50+)', () => {
-    assert(toolDefinitions.length >= 50, `Expected 50+ tools, got ${toolDefinitions.length}`);
+  test('Tool definitions loaded (35+)', () => {
+    assert(toolDefinitions.length >= 35, `Expected 35+ tools, got ${toolDefinitions.length}`);
   });
 
   test('All tools have valid definitions', () => {

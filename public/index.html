@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Jarvis Cyber — Autonomous AI Cybersecurity Agent Dashboard. 150+ Kali Tools, MITRE ATT&CK Mapping, Real-Time Threat Intelligence.">
+  <meta name="theme-color" content="#0a0e17">
+  <title>Jarvis Cyber — Command Center</title>
+
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐉</text></svg>">
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="/css/index.css">
+  <link rel="stylesheet" href="/css/chat.css">
+
+  <!-- CDN: Socket.io Client -->
+  <script src="/socket.io/socket.io.js"></script>
+  <!-- CDN: Marked.js for Markdown -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <!-- Ambient Background -->
+  <div class="ambient-bg"></div>
+  <div class="grid-overlay"></div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Main App Shell -->
+  <div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-icon">🐉</span>
+        <div class="brand-text">
+          <span class="brand-name">Jarvis Cyber</span>
+          <span class="brand-version">v4.0.0 • Command Center</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Main</div>
+        <div class="nav-item active" data-view="dashboard" id="nav-dashboard">
+          <span class="nav-icon">📊</span>
+          <span>Dashboard</span>
+        </div>
+        <div class="nav-item" data-view="chat" id="nav-chat">
+          <span class="nav-icon">💬</span>
+          <span>Agent Chat</span>
+        </div>
+        <div class="nav-item" data-view="tools" id="nav-tools">
+          <span class="nav-icon">🔧</span>
+          <span>Tools</span>
+          <span class="nav-badge" id="tools-count">—</span>
+        </div>
+
+        <div class="nav-section-label">Intelligence</div>
+        <div class="nav-item" data-view="intel" id="nav-intel">
+          <span class="nav-icon">🛡️</span>
+          <span>Threat Intel</span>
+        </div>
+        <div class="nav-item" data-view="reports" id="nav-reports">
+          <span class="nav-icon">📝</span>
+          <span>Reports</span>
+        </div>
+
+        <div class="nav-section-label">System</div>
+        <div class="nav-item" data-view="settings" id="nav-settings">
+          <span class="nav-icon">⚙️</span>
+          <span>Settings</span>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-status" id="connection-status">
+          <span class="status-dot offline" id="status-dot"></span>
+          <span id="status-text">Connecting...</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Header -->
+      <header class="header">
+        <div class="header-left">
+          <button class="header-btn" id="sidebar-toggle" style="display:none;">☰</button>
+          <h1 class="header-title" id="page-title">Dashboard</h1>
+          <span class="header-breadcrumb" id="page-breadcrumb">Overview</span>
+        </div>
+        <div class="header-right">
+          <div class="header-btn" id="token-badge" title="Token Usage">
+            <span style="font-size:0.75rem;">🪙</span>
+          </div>
+          <div class="badge info" id="model-badge" title="Active AI Model">—</div>
+        </div>
+      </header>
+
+      <!-- Page Content (Routed Views) -->
+      <div class="page-content" id="page-content">
+        <!-- Views are rendered here dynamically -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Application Scripts -->
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

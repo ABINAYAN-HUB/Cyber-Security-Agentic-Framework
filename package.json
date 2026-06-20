@@ -13,6 +13,7 @@
   "files": [
     "cli.js",
     "src/",
+    "public/",
     "skills/",
     "tests/",
     "install-service.sh",
@@ -28,6 +29,8 @@
     "learn": "node cli.js --learn",
     "mcp": "node cli.js --mcp",
     "mcp:sse": "node cli.js --mcp --port 8888",
+    "web": "node cli.js --web",
+    "web:dev": "node cli.js --web --port 3000",
     "install-service": "chmod +x install-service.sh && ./install-service.sh",
     "test": "node tests/test-all.js"
   },
@@ -76,6 +79,7 @@
     "node-telegram-bot-api": "^0.67.0",
     "ora": "^8.0.1",
     "puppeteer": "^24.9.0",
+    "socket.io": "^4.8.3",
     "whois-json": "^2.0.4",
     "zod": "^4.4.3"
   }

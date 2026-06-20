@@ -151,6 +151,20 @@ else if (args.includes('--mcp')) {
   });
 }
 
+// ═══ MODE: WEB UI (v4.0) ═══
+else if (args.includes('--web')) {
+  import('./src/web-server.js').then(async ({ startWebServer }) => {
+    try {
+      const portIdx = args.indexOf('--port');
+      const port = portIdx !== -1 && args[portIdx + 1] ? parseInt(args[portIdx + 1]) : 3000;
+      await startWebServer({ port });
+    } catch (err) {
+      console.error(`Fatal: ${err.message}`);
+      process.exit(1);
+    }
+  });
+}
+
 // ═══ MODE: INTERACTIVE CLI ═══
 else {
   const cwd = process.cwd();
