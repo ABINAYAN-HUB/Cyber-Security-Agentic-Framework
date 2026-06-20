@@ -111,11 +111,9 @@ export async function* streamChat(messages, tools, systemPrompt) {
     presence_penalty: config.presencePenalty,
     repetition_penalty: config.repetitionPenalty,
     stream: true,
-    extra_body: {
-      chat_template_kwargs: {
-        enable_thinking: true,
-        clear_thinking: false
-      }
+    chat_template_kwargs: {
+      enable_thinking: true,
+      clear_thinking: false
     }
   };
 
@@ -266,11 +264,9 @@ export async function chatCompletion(messages, tools, systemPrompt) {
     presence_penalty: config.presencePenalty,
     repetition_penalty: config.repetitionPenalty,
     stream: false,
-    extra_body: {
-      chat_template_kwargs: {
-        enable_thinking: true,
-        clear_thinking: false
-      }
+    chat_template_kwargs: {
+      enable_thinking: true,
+      clear_thinking: false
     }
   };
 
