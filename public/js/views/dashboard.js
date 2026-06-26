@@ -12,15 +12,16 @@ export class DashboardView {
     container.innerHTML = this.getSkeletonHTML();
     
     // Load data in parallel
-    const [stats, health, usageStats, executionLog, services] = await Promise.all([
+    const [stats, health, usageStats, executionLog, services, frameworks] = await Promise.all([
       this.app.api('/stats'),
       this.app.api('/health'),
       this.app.api('/usage-stats'),
       this.app.api('/execution-log'),
       this.app.api('/services'),
+      this.app.api('/frameworks'),
     ]);
 
-    container.innerHTML = this.buildHTML(stats, health, usageStats, executionLog, services);
+    container.innerHTML = this.buildHTML(stats, health, usageStats, executionLog, services, frameworks);
 
     // Animate counters
     this.animateCounters();
@@ -58,12 +59,13 @@ export class DashboardView {
     if (el) el.textContent = this.formatNumber(value);
   }
 
-  buildHTML(stats, health, usageStats, executionLog, services) {
+  buildHTML(stats, health, usageStats, executionLog, services, frameworks) {
     const s = stats || {};
     const h = health || {};
     const toolUsageEntries = Object.entries(usageStats || {}).sort((a, b) => b[1].calls - a[1].calls).slice(0, 12);
     const execLog = executionLog || [];
     const svc = services || {};
+    const fw = frameworks || {};
 
     // Build tool usage chart data
     const chartData = toolUsageEntries.map(([name, data]) => ({
@@ -106,36 +108,16 @@ export class DashboardView {
       timelineHtml = '<div class="text-sm text-muted" style="padding:var(--sp-4);">No activity yet this session. Start a chat to begin.</div>';
     }
 
-    // MITRE heatmap data
+    // MITRE ATT&CK — Full tactic-grouped heatmap from backend
     const mitreTechniques = {};
     execLog.forEach(e => { if (e.mitre) mitreTechniques[e.mitre] = (mitreTechniques[e.mitre] || 0) + 1; });
-    const mitreData = [
-      { id: 'T1595', name: 'Active Scanning' },
-      { id: 'T1592', name: 'Gather Info' },
-      { id: 'T1590', name: 'Network Info' },
-      { id: 'T1596', name: 'Search DBs' },
-      { id: 'T1593', name: 'Search Web' },
-      { id: 'T1046', name: 'Network Svc Discovery' },
-      { id: 'T1190', name: 'Exploit Public App' },
-      { id: 'T1110', name: 'Brute Force' },
-      { id: 'T1071', name: 'App Layer Protocol' },
-      { id: 'T1587', name: 'Develop Capabilities' },
-      { id: 'T1021', name: 'Remote Services' },
-      { id: 'T1040', name: 'Network Sniffing' },
-      { id: 'T1557', name: 'Adversary-in-Middle' },
-      { id: 'T1087', name: 'Account Discovery' },
-      { id: 'T1068', name: 'Privilege Escalation' },
-      { id: 'T1572', name: 'Protocol Tunneling' },
-      { id: 'T1588', name: 'Obtain Capabilities' },
-      { id: 'T1189', name: 'Drive-by Compromise' },
-    ];
-    const mitreHtml = mitreData.map(t => `
-      <div class="mitre-cell ${mitreTechniques[t.id] ? 'active' : ''}" title="${t.id}: ${t.name} (${mitreTechniques[t.id] || 0} hits)">
-        <div style="font-weight:700;">${t.id}</div>
-        <div>${t.name}</div>
-        ${mitreTechniques[t.id] ? `<div style="margin-top:2px;font-weight:700;color:var(--cyan);">${mitreTechniques[t.id]}</div>` : ''}
-      </div>
-    `).join('');
+
+    const mitreTactics = fw.mitre?.tactics || [];
+    const mitreHtml = this.buildMitreHeatmap(mitreTactics, mitreTechniques);
+
+    // Cyber Kill Chain visualization
+    const killChainPhases = fw.killChain?.phases || [];
+    const killChainHtml = this.buildKillChainViz(killChainPhases, execLog);
 
     return `
       <!-- Stats Row -->
@@ -238,15 +220,22 @@ export class DashboardView {
         </div>
       </div>
 
-      <!-- MITRE ATT&CK Heatmap -->
+      <!-- Cyber Kill Chain -->
+      <div class="glass-panel glow-rose mb-6">
+        <div class="panel-header">
+          <span class="panel-title">⚔️ Cyber Kill Chain — Phase Progression</span>
+          <span class="panel-subtitle">Lockheed Martin Model • ${killChainPhases.length} Phases</span>
+        </div>
+        ${killChainHtml}
+      </div>
+
+      <!-- MITRE ATT&CK Full Heatmap -->
       <div class="glass-panel glow-cyan mb-6">
         <div class="panel-header">
-          <span class="panel-title">🎯 MITRE ATT&CK Coverage</span>
-          <span class="panel-subtitle">${Object.keys(mitreTechniques).length} techniques triggered</span>
+          <span class="panel-title">🎯 MITRE ATT&CK Enterprise Coverage</span>
+          <span class="panel-subtitle">${mitreTactics.length} tactics • ${Object.keys(mitreTechniques).length} techniques triggered this session</span>
         </div>
-        <div class="mitre-grid">
-          ${mitreHtml}
-        </div>
+        ${mitreHtml}
       </div>
 
       <!-- Database Tables Overview -->
@@ -257,6 +246,125 @@ export class DashboardView {
         <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-3);">
           ${this.buildDbCards(s)}
         </div>
+      </div>
+    `;
+  }
+
+  // ═══ MITRE ATT&CK Full Heatmap ═══
+  buildMitreHeatmap(tactics, activeTechniques) {
+    if (!tactics || tactics.length === 0) {
+      return `<div class="empty-state"><span class="empty-icon">🎯</span><span class="empty-title">No framework data</span><span class="empty-description">Framework data unavailable. Check /api/frameworks endpoint.</span></div>`;
+    }
+
+    return `<div class="mitre-tactics-container">
+      ${tactics.map(tactic => {
+        const techniques = tactic.techniques || [];
+        const activeCount = techniques.filter(t => activeTechniques[t.id]).length;
+        const tacticColor = this.getTacticColor(tactic.id);
+
+        return `
+          <div class="mitre-tactic-group">
+            <div class="mitre-tactic-header" style="border-left: 3px solid ${tacticColor};">
+              <div class="mitre-tactic-id" style="color:${tacticColor};">${tactic.id}</div>
+              <div class="mitre-tactic-name">${tactic.name}</div>
+              <div class="mitre-tactic-count">${techniques.length} techniques${activeCount > 0 ? ` • <span style="color:var(--cyan);">${activeCount} active</span>` : ''}</div>
+            </div>
+            <div class="mitre-techniques-grid">
+              ${techniques.map(t => {
+                const hits = activeTechniques[t.id] || 0;
+                const isActive = hits > 0;
+                return `
+                  <div class="mitre-cell ${isActive ? 'active' : ''}" title="${t.id}: ${t.name}${t.sub ? '\nSub-techniques: ' + t.sub.join(', ') : ''}${isActive ? '\n\nHits: ' + hits : ''}">
+                    <div style="font-weight:700;font-size:0.62rem;">${t.id}</div>
+                    <div style="font-size:0.58rem;line-height:1.2;margin-top:1px;">${t.name.length > 22 ? t.name.slice(0, 20) + '…' : t.name}</div>
+                    ${isActive ? `<div style="margin-top:2px;font-weight:700;color:var(--cyan);font-size:0.65rem;">${hits}</div>` : ''}
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>`;
+  }
+
+  getTacticColor(tacticId) {
+    const colors = {
+      'TA0043': '#00f0ff', // Reconnaissance — cyan
+      'TA0042': '#8b5cf6', // Resource Dev — violet
+      'TA0001': '#f43f5e', // Initial Access — rose
+      'TA0002': '#f59e0b', // Execution — amber
+      'TA0003': '#10b981', // Persistence — emerald
+      'TA0004': '#ec4899', // Priv Esc — pink
+      'TA0005': '#6366f1', // Defense Evasion — indigo
+      'TA0006': '#ef4444', // Credential Access — red
+      'TA0007': '#14b8a6', // Discovery — teal
+      'TA0008': '#f97316', // Lateral Movement — orange
+      'TA0009': '#a855f7', // Collection — purple
+      'TA0011': '#06b6d4', // C2 — sky
+      'TA0010': '#eab308', // Exfiltration — yellow
+      'TA0040': '#dc2626', // Impact — deep red
+    };
+    return colors[tacticId] || '#64748b';
+  }
+
+  // ═══ Cyber Kill Chain Visualization ═══
+  buildKillChainViz(phases, execLog) {
+    if (!phases || phases.length === 0) {
+      return '<div class="empty-state"><span class="empty-icon">⚔️</span><span class="empty-title">No Kill Chain data</span><span class="empty-description">Framework data unavailable.</span></div>';
+    }
+
+    const phaseIcons = ['🔍', '⚒️', '📬', '💥', '🔩', '📡', '🎯'];
+    const phaseColors = ['#00f0ff', '#8b5cf6', '#f59e0b', '#f43f5e', '#10b981', '#06b6d4', '#ec4899'];
+
+    return `
+      <div class="kill-chain-container">
+        <div class="kill-chain-track">
+          ${phases.map((phase, i) => {
+            const mitreTactics = (phase.mitre_tactics || []).join(', ');
+            return `
+              <div class="kill-chain-phase" style="--phase-color: ${phaseColors[i]};">
+                <div class="kill-chain-node">
+                  <div class="kill-chain-icon">${phaseIcons[i] || '⚡'}</div>
+                  <div class="kill-chain-number">Phase ${phase.id}</div>
+                </div>
+                <div class="kill-chain-info">
+                  <div class="kill-chain-phase-name">${phase.name}</div>
+                  <div class="kill-chain-phase-desc">${phase.description}</div>
+                  <div class="kill-chain-phase-meta">
+                    ${mitreTactics ? `<span class="tag" style="color:var(--violet);font-size:0.6rem;">${mitreTactics}</span>` : ''}
+                    <span class="tag" style="font-size:0.6rem;">${(phase.objectives || []).length} objectives</span>
+                  </div>
+                </div>
+                ${i < phases.length - 1 ? '<div class="kill-chain-arrow">→</div>' : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- Kill Chain Details Grid -->
+      <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--sp-3); margin-top: var(--sp-5);">
+        ${phases.map((phase, i) => `
+          <div class="kill-chain-detail-card" style="border-top: 2px solid ${phaseColors[i]};">
+            <div class="flex items-center gap-2" style="margin-bottom: var(--sp-3);">
+              <span style="font-size:1.2rem;">${phaseIcons[i]}</span>
+              <span style="font-weight:700; font-size:0.9rem;">${phase.name}</span>
+              <span class="badge info" style="margin-left:auto;">Phase ${phase.id}</span>
+            </div>
+            <ul class="kill-chain-objectives">
+              ${(phase.objectives || []).slice(0, 4).map(obj => `
+                <li>${obj}</li>
+              `).join('')}
+              ${(phase.objectives || []).length > 4 ? `<li class="text-muted">+${phase.objectives.length - 4} more</li>` : ''}
+            </ul>
+            ${(phase.tool_categories || []).length > 0 ? `
+              <div style="margin-top:var(--sp-2); display:flex; flex-wrap:wrap; gap:4px;">
+                ${phase.tool_categories.slice(0, 4).map(cat => `<span class="tag" style="font-size:0.6rem;">${cat}</span>`).join('')}
+              </div>
+            ` : ''}
+          </div>
+        `).join('')}
       </div>
     `;
   }

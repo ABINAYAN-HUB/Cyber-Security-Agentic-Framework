@@ -17,6 +17,7 @@ import { dynamicSkills } from './dynamic-skills.js';
 import { toolDefinitions } from './tools/index.js';
 import { detectInstalledTools, getAllTools, getCategories } from './kali-tools-registry.js';
 import { checkServer } from './api.js';
+import { MITRE_ATTACK, CYBER_KILL_CHAIN } from './frameworks.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -110,6 +111,14 @@ export async function startWebServer(options = {}) {
         usage: t.usage || [],
         installed: installed.has(t.name),
       })),
+    });
+  });
+
+  // MITRE ATT&CK + Cyber Kill Chain frameworks
+  app.get('/api/frameworks', (req, res) => {
+    res.json({
+      mitre: MITRE_ATTACK,
+      killChain: CYBER_KILL_CHAIN,
     });
   });
 
@@ -411,6 +420,17 @@ export async function startWebServer(options = {}) {
   });
 
   // ═══ START SERVER ═══
+  httpServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n  ❌ Port ${port} is already in use.`);
+      console.error(`  💡 Fix: Run "fuser -k ${port}/tcp" to free it, or use a different port:`);
+      console.error(`     node cli.js --web --port 3001\n`);
+      process.exit(1);
+    } else {
+      throw err;
+    }
+  });
+
   httpServer.listen(port, () => {
     console.log(`\n  🐉 Jarvis Cyber — Web Command Center`);
     console.log(`  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

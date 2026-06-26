@@ -62,8 +62,29 @@ class App {
       item.addEventListener('click', () => {
         const view = item.dataset.view;
         window.location.hash = view;
+        // Close sidebar on mobile after navigation
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar && window.innerWidth <= 900) {
+          sidebar.classList.remove('open');
+        }
       });
     });
+
+    // Mobile sidebar toggle
+    const toggleBtn = document.getElementById('sidebar-toggle');
+    const sidebar = document.getElementById('sidebar');
+    if (toggleBtn && sidebar) {
+      // Show toggle on mobile
+      const updateToggleVisibility = () => {
+        toggleBtn.style.display = window.innerWidth <= 900 ? 'flex' : 'none';
+      };
+      updateToggleVisibility();
+      window.addEventListener('resize', updateToggleVisibility);
+
+      toggleBtn.addEventListener('click', () => {
+        sidebar.classList.toggle('open');
+      });
+    }
   }
 
   navigate(viewName) {

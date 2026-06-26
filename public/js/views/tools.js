@@ -141,7 +141,7 @@ export class ToolsView {
         <div class="tool-desc">${(t.description || '').slice(0, 120)}</div>
         <div class="tool-meta">
           <span class="tag">${t.category || 'general'}</span>
-          ${(t.mitre || []).slice(0, 3).map(m => `<span class="tag" style="color:var(--violet);">${m}</span>`).join('')}
+          ${(t.mitre || []).map(m => `<span class="tag" style="color:var(--violet);">${m}</span>`).join('')}
           ${t.bin ? `<span class="tag" style="color:var(--text-dim);">${t.bin}</span>` : ''}
         </div>
         ${(t.usage || []).length > 0 ? `

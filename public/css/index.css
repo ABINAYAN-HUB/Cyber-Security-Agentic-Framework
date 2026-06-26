@@ -1329,3 +1329,208 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: 0 0 15px var(--cyan-glow);
   transform: translateY(-2px);
 }
+
+/* ═══ UTILITY — font-semibold ═══ */
+.font-semibold { font-weight: 600; }
+
+/* ═══ MITRE ATT&CK — Tactic-Grouped Heatmap ═══ */
+.mitre-tactics-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.mitre-tactic-group {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: rgba(255,255,255,0.01);
+}
+
+.mitre-tactic-header {
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-elevated);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.mitre-tactic-id {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-width: 50px;
+}
+
+.mitre-tactic-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.mitre-tactic-count {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-left: auto;
+}
+
+.mitre-techniques-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 2px;
+  padding: 3px;
+}
+
+/* ═══ CYBER KILL CHAIN ═══ */
+.kill-chain-container {
+  overflow-x: auto;
+  padding: var(--sp-2) 0;
+}
+
+.kill-chain-track {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  min-width: max-content;
+}
+
+.kill-chain-phase {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+}
+
+.kill-chain-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 60px;
+}
+
+.kill-chain-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  background: var(--bg-elevated);
+  border: 2px solid var(--phase-color, var(--border-default));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--phase-color, transparent) 20%, transparent);
+  transition: all var(--transition-fast);
+}
+
+.kill-chain-phase:hover .kill-chain-icon {
+  box-shadow: 0 0 20px color-mix(in srgb, var(--phase-color, transparent) 40%, transparent);
+  transform: scale(1.1);
+}
+
+.kill-chain-number {
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.kill-chain-info {
+  max-width: 130px;
+}
+
+.kill-chain-phase-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.kill-chain-phase-desc {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kill-chain-phase-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.kill-chain-arrow {
+  color: var(--text-dim);
+  font-size: 1.2rem;
+  margin: 0 var(--sp-2);
+  opacity: 0.4;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.kill-chain-detail-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
+  transition: all var(--transition-fast);
+}
+
+.kill-chain-detail-card:hover {
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.kill-chain-objectives {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.kill-chain-objectives li {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  padding-left: var(--sp-4);
+  position: relative;
+  line-height: 1.4;
+}
+
+.kill-chain-objectives li::before {
+  content: '›';
+  position: absolute;
+  left: 6px;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+
+/* Responsive Kill Chain */
+@media (max-width: 900px) {
+  .kill-chain-track {
+    flex-direction: column;
+    align-items: stretch;
+    min-width: auto;
+  }
+  .kill-chain-phase {
+    flex-direction: row;
+    align-items: center;
+  }
+  .kill-chain-arrow {
+    transform: rotate(90deg);
+    margin: var(--sp-1) 0;
+    align-self: center;
+  }
+  .kill-chain-info {
+    max-width: none;
+  }
+}
