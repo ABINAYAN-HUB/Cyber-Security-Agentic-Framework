@@ -314,6 +314,18 @@ class Memory {
         installed_at TEXT DEFAULT (datetime('now'))
       );
       CREATE INDEX IF NOT EXISTS idx_it_name ON installed_tools(tool_name);
+
+      -- ═══════════════════════════════════════════
+      -- CHAT SESSIONS — Web UI chat history
+      -- ═══════════════════════════════════════════
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT 'New Chat',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        message_count INTEGER DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_cs_updated ON chat_sessions(updated_at);
     `);
   }
 
@@ -424,6 +436,72 @@ class Memory {
 
   getConversation(sessionId, limit = 50) {
     return this.db.prepare('SELECT * FROM conversations WHERE session_id = ? ORDER BY created_at ASC LIMIT ?').all(sessionId, limit);
+  }
+
+  // ═══════════════════════════════════════════
+  // Chat Sessions (Web UI History)
+  // ═══════════════════════════════════════════
+  createChatSession(id, title = 'New Chat') {
+    this.db.prepare(
+      `INSERT INTO chat_sessions (id, title) VALUES (?, ?)`
+    ).run(id, title);
+    return { id, title, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), message_count: 0 };
+  }
+
+  getChatSessions(limit = 100) {
+    return this.db.prepare(
+      `SELECT * FROM chat_sessions ORDER BY updated_at DESC LIMIT ?`
+    ).all(limit);
+  }
+
+  getChatSession(id) {
+    return this.db.prepare('SELECT * FROM chat_sessions WHERE id = ?').get(id);
+  }
+
+  updateSessionTitle(id, title) {
+    this.db.prepare(
+      `UPDATE chat_sessions SET title = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(title, id);
+  }
+
+  updateSessionTimestamp(id) {
+    this.db.prepare(
+      `UPDATE chat_sessions SET updated_at = datetime('now') WHERE id = ?`
+    ).run(id);
+  }
+
+  incrementSessionMessageCount(id) {
+    this.db.prepare(
+      `UPDATE chat_sessions SET message_count = message_count + 1, updated_at = datetime('now') WHERE id = ?`
+    ).run(id);
+  }
+
+  deleteChatSession(id) {
+    this.db.prepare('DELETE FROM conversations WHERE session_id = ?').run(id);
+    this.db.prepare('DELETE FROM chat_sessions WHERE id = ?').run(id);
+  }
+
+  getSessionMessages(sessionId, limit = 200) {
+    return this.db.prepare(
+      'SELECT role, content, tool_calls, created_at FROM conversations WHERE session_id = ? ORDER BY created_at ASC LIMIT ?'
+    ).all(sessionId, limit);
+  }
+
+  storeSessionMessage(sessionId, role, content) {
+    this.db.prepare(
+      'INSERT INTO conversations (session_id, role, content) VALUES (?, ?, ?)'
+    ).run(sessionId, role, content);
+    this.incrementSessionMessageCount(sessionId);
+  }
+
+  searchChatSessions(query) {
+    const pattern = `%${query}%`;
+    return this.db.prepare(
+      `SELECT DISTINCT s.* FROM chat_sessions s
+       LEFT JOIN conversations c ON s.id = c.session_id
+       WHERE s.title LIKE ? OR c.content LIKE ?
+       ORDER BY s.updated_at DESC LIMIT 50`
+    ).all(pattern, pattern);
   }
 
   // ═══════════════════════════════════════════

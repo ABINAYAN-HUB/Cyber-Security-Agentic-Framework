@@ -1,4 +1,5 @@
 // Jarvis Cyber — Chat View (Agent Interaction) — Production Grade
+// Features: History sidebar, session management, thinking steps, tool cards, smart scroll
 import { renderMarkdown, escapeHtml } from '../components/markdown.js';
 import { Toast } from '../components/toast.js';
 
@@ -16,30 +17,66 @@ export class ChatView {
     this.thinkingStartTime = null;
     this.thinkingTimerInterval = null;
     this.streamStartTime = null;
+    // Session state
+    this.activeSessionId = null;
+    this.sessions = [];
+    this.historyOpen = true;
+    this.searchQuery = '';
   }
 
   render(container) {
     container.innerHTML = `
       <div class="chat-view">
-        <div class="chat-messages" id="chat-messages">
-          ${this.messages.length === 0 ? this.getWelcomeHTML() : ''}
-        </div>
-        <button class="scroll-to-bottom" id="scroll-to-bottom" title="Jump to bottom">↓</button>
-        <div class="chat-input-area">
-          <div class="chat-input-wrapper">
-            <div class="chat-input-container">
-              <textarea class="chat-input" id="chat-input"
-                placeholder="Ask Jarvis anything... (e.g., 'Scan example.com for vulnerabilities')"
-                rows="1"></textarea>
-              <div class="slash-dropdown hidden" id="slash-dropdown"></div>
-            </div>
-            <button class="chat-send-btn" id="chat-send" title="Send message">
-              <span id="send-icon">➤</span>
+        <div class="chat-history-panel ${this.historyOpen ? 'open' : ''}" id="chat-history-panel">
+          <div class="history-header">
+            <span class="history-title">💬 Chat History</span>
+            <button class="history-close-btn" id="history-close-btn" title="Close history">✕</button>
+          </div>
+          <div class="history-actions">
+            <button class="history-new-chat-btn" id="new-chat-btn" title="New Chat">
+              <span>＋</span> New Chat
             </button>
           </div>
-          <div class="chat-footer-info">
-            <span><kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for newline</span>
-            <span id="chat-token-info"></span>
+          <div class="history-search">
+            <input type="text" class="history-search-input" id="history-search"
+              placeholder="Search chats..." />
+          </div>
+          <div class="history-sessions-list" id="history-sessions-list">
+            <div class="history-loading">Loading...</div>
+          </div>
+        </div>
+        <div class="chat-main">
+          <div class="chat-header">
+            <div class="chat-header-left">
+              <button class="history-toggle-btn" id="history-toggle-btn" title="Chat history">
+                <span class="menu-icon"></span>
+              </button>
+              <h1 class="chat-header-title" id="chat-header-title">New Chat</h1>
+            </div>
+            <div class="chat-header-right">
+              <span class="model-badge" id="chat-model-badge">Agent Ready</span>
+            </div>
+          </div>
+          <div class="chat-messages" id="chat-messages">
+            ${this.messages.length === 0 ? this.getWelcomeHTML() : ''}
+          </div>
+          <div class="chat-input-area">
+            <button class="scroll-to-bottom" id="scroll-to-bottom" title="Jump to bottom">↓</button>
+            <div class="chat-input-wrapper">
+              <div class="chat-input-container">
+                <textarea class="chat-input" id="chat-input"
+                  placeholder="Ask Jarvis anything..."
+                  rows="1"></textarea>
+                <div class="slash-dropdown hidden" id="slash-dropdown"></div>
+              </div>
+              <button class="chat-send-btn" id="chat-send" title="Send message">
+                <span id="send-icon">➤</span>
+              </button>
+            </div>
+            <div class="chat-footer-info">
+              <span><kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for newline</span>
+              <span id="chat-token-info"></span>
+            </div>
           </div>
         </div>
       </div>
@@ -48,6 +85,7 @@ export class ChatView {
     this.rendered = true;
     this.setupInputHandlers();
     this.setupScrollDetection();
+    this.setupHistoryPanel();
 
     // Re-render existing messages
     if (this.messages.length > 0) {
@@ -57,8 +95,11 @@ export class ChatView {
       this.scrollToBottom(true);
     }
 
-    // Setup suggestion chips after DOM is ready
-    requestAnimationFrame(() => this.setupSuggestionChips());
+    // Setup suggestion chips & load sessions after DOM is ready
+    requestAnimationFrame(() => {
+      this.setupSuggestionChips();
+      this.loadSessions();
+    });
   }
 
   teardown() {
@@ -112,7 +153,6 @@ export class ChatView {
     container.addEventListener('scroll', () => {
       const { scrollTop, scrollHeight, clientHeight } = container;
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      // If user scrolled up more than 100px from bottom, disable auto-scroll
       this.autoScroll = distanceFromBottom < 100;
       this.updateScrollFab();
     });
@@ -130,10 +170,207 @@ export class ChatView {
   updateScrollFab() {
     const fab = document.getElementById('scroll-to-bottom');
     if (!fab) return;
-    if (this.autoScroll) {
-      fab.classList.remove('visible');
-    } else {
-      fab.classList.add('visible');
+    fab.classList.toggle('visible', !this.autoScroll);
+  }
+
+  // ═══ HISTORY PANEL ═══
+
+  setupHistoryPanel() {
+    const closeBtn = document.getElementById('history-close-btn');
+    const toggleBtn = document.getElementById('history-toggle-btn');
+    const newChatBtn = document.getElementById('new-chat-btn');
+    const searchInput = document.getElementById('history-search');
+
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => this.toggleHistory(false));
+    }
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => this.toggleHistory(!this.historyOpen));
+    }
+    if (newChatBtn) {
+      newChatBtn.addEventListener('click', () => this.createNewSession());
+    }
+    if (searchInput) {
+      let debounceTimer;
+      searchInput.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          this.searchQuery = searchInput.value.trim();
+          this.loadSessions();
+        }, 300);
+      });
+    }
+  }
+
+  toggleHistory(open) {
+    this.historyOpen = open;
+    const panel = document.getElementById('chat-history-panel');
+    if (panel) {
+      panel.classList.toggle('open', open);
+    }
+  }
+
+  async loadSessions() {
+    try {
+      const url = this.searchQuery
+        ? `/api/chat/search?q=${encodeURIComponent(this.searchQuery)}`
+        : '/api/chat/sessions';
+      const res = await fetch(url);
+      const data = await res.json();
+      this.sessions = data.sessions || [];
+      this.renderSessionList();
+    } catch (err) {
+      console.error('Failed to load sessions:', err);
+    }
+  }
+
+  renderSessionList() {
+    const container = document.getElementById('history-sessions-list');
+    if (!container) return;
+
+    if (this.sessions.length === 0) {
+      container.innerHTML = `
+        <div class="history-empty">
+          <span>📭</span>
+          <p>${this.searchQuery ? 'No matching chats' : 'No chat history yet'}</p>
+        </div>
+      `;
+      return;
+    }
+
+    // Group by date
+    const groups = this.groupSessionsByDate(this.sessions);
+    let html = '';
+
+    for (const [label, sessions] of groups) {
+      html += `<div class="history-date-label">${escapeHtml(label)}</div>`;
+      for (const s of sessions) {
+        const isActive = s.id === this.activeSessionId;
+        const title = s.title || 'Untitled Chat';
+        const msgCount = s.message_count || 0;
+        html += `
+        <div class="history-session-item ${isActive ? 'active' : ''}" data-session-id="${escapeHtml(s.id)}">
+          <div class="history-session-info">
+            <span class="history-session-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
+            <span class="history-session-meta">${msgCount} message${msgCount !== 1 ? 's' : ''}</span>
+          </div>
+          <div class="history-session-actions">
+            <button class="history-action-btn rename-btn" data-id="${escapeHtml(s.id)}" title="Rename">✎</button>
+            <button class="history-action-btn delete-btn" data-id="${escapeHtml(s.id)}" title="Delete">✕</button>
+          </div>
+        </div>
+        `;
+      }
+    }
+
+    container.innerHTML = html;
+
+    // Attach event listeners
+    container.querySelectorAll('.history-session-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        // Don't switch if clicking action buttons
+        if (e.target.closest('.history-action-btn')) return;
+        const id = item.dataset.sessionId;
+        if (id !== this.activeSessionId) {
+          this.switchSession(id);
+        }
+      });
+    });
+
+    container.querySelectorAll('.rename-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.renameSession(btn.dataset.id);
+      });
+    });
+
+    container.querySelectorAll('.delete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.deleteSession(btn.dataset.id);
+      });
+    });
+  }
+
+  groupSessionsByDate(sessions) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const groups = new Map();
+    groups.set('Today', []);
+    groups.set('Yesterday', []);
+    groups.set('Previous 7 Days', []);
+    groups.set('Older', []);
+
+    for (const s of sessions) {
+      const d = new Date(s.updated_at || s.created_at);
+      if (d >= today) {
+        groups.get('Today').push(s);
+      } else if (d >= yesterday) {
+        groups.get('Yesterday').push(s);
+      } else if (d >= weekAgo) {
+        groups.get('Previous 7 Days').push(s);
+      } else {
+        groups.get('Older').push(s);
+      }
+    }
+
+    // Filter out empty groups
+    return [...groups.entries()].filter(([, items]) => items.length > 0);
+  }
+
+  createNewSession() {
+    if (this.isStreaming) {
+      Toast.warning('Cannot create new chat while streaming');
+      return;
+    }
+    this.app.socket.emit('chat:new_session');
+  }
+
+  switchSession(sessionId) {
+    if (this.isStreaming) {
+      Toast.warning('Cannot switch while streaming');
+      return;
+    }
+    this.app.socket.emit('chat:switch_session', { sessionId });
+  }
+
+  async renameSession(id) {
+    const session = this.sessions.find(s => s.id === id);
+    const currentTitle = session?.title || 'Untitled';
+    const newTitle = prompt('Rename chat:', currentTitle);
+    if (!newTitle || newTitle.trim() === '' || newTitle === currentTitle) return;
+
+    try {
+      await fetch(`/api/chat/sessions/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle.trim() }),
+      });
+      await this.loadSessions();
+      Toast.success('Chat renamed');
+    } catch (err) {
+      Toast.error('Failed to rename');
+    }
+  }
+
+  async deleteSession(id) {
+    if (!confirm('Delete this chat? This cannot be undone.')) return;
+
+    try {
+      await fetch(`/api/chat/sessions/${id}`, { method: 'DELETE' });
+      // If we deleted the active session, create a new one
+      if (id === this.activeSessionId) {
+        this.messages = [];
+        this.activeSessionId = null;
+        this.app.socket.emit('chat:new_session');
+      }
+      await this.loadSessions();
+      Toast.success('Chat deleted');
+    } catch (err) {
+      Toast.error('Failed to delete');
     }
   }
 
@@ -175,8 +412,8 @@ export class ChatView {
   stopStreaming() {
     if (!this.isStreaming) return;
     this.app.socket.emit('chat:abort');
-    this.finishStreaming({ usage: null }, false);
-    Toast.info('Request stopped');
+    // Don't call finishStreaming here — the server will emit chat:done
+    // which will trigger finishStreaming. This prevents double-finish (Bug 2 fix).
   }
 
   // ═══ SOCKET EVENTS ═══
@@ -205,8 +442,7 @@ export class ChatView {
         this.appendToolCallCard(data.name, data.args, this.toolStepCounter);
         break;
 
-      case 'chat:tool_done':
-        // Update the tool call status
+      case 'chat:tool_done': {
         const tc = this.currentToolCalls.find(t => t.name === data.name && t.status === 'running');
         if (tc) {
           tc.status = data.result?.success === false ? 'error' : 'success';
@@ -214,21 +450,32 @@ export class ChatView {
         }
         this.updateToolCallStatus(data.name, data.result);
         break;
+      }
 
       case 'chat:done':
-        this.finishStreaming(data);
+        if (this.isStreaming) {
+          this.finishStreaming(data);
+        }
         break;
 
       case 'chat:error':
-        this.finishStreaming(data, true);
+        if (this.isStreaming) {
+          this.finishStreaming(data, true);
+        }
         Toast.error(`Agent error: ${data.error}`);
         break;
 
       case 'chat:cleared':
+        // Bug 4 fix: reset streaming state
+        this.isStreaming = false;
+        this.stopThinkingTimer();
+        this.updateSendButton(false);
         this.messages = [];
         if (this.rendered) {
           const messagesEl = document.getElementById('chat-messages');
           if (messagesEl) messagesEl.innerHTML = this.getWelcomeHTML();
+          // Bug 1 fix: re-wire suggestion chips after clearing
+          requestAnimationFrame(() => this.setupSuggestionChips());
         }
         Toast.info('Conversation cleared');
         break;
@@ -237,13 +484,42 @@ export class ChatView {
         Toast.info('History compacted');
         if (data.usage) this.updateTokenInfo(data.usage);
         break;
+
+      case 'chat:session_created':
+        this.activeSessionId = data.id;
+        this.updateHeaderTitle(data.title || 'New Chat');
+        this.loadSessions();
+        break;
+
+      case 'chat:session_loaded':
+        this.activeSessionId = data.sessionId;
+        const session = this.sessions.find(s => s.id === data.sessionId);
+        this.updateHeaderTitle(session?.title || 'Chat Session');
+        this.messages = [];
+        // Rebuild messages from server data
+        const messagesEl = document.getElementById('chat-messages');
+        if (messagesEl) messagesEl.innerHTML = '';
+        if (data.messages && data.messages.length > 0) {
+          data.messages.forEach(m => {
+            if (m.role === 'user' || m.role === 'assistant') {
+              this.addMessage(m.role, m.content || '', { timestamp: new Date(m.timestamp) });
+            }
+          });
+        } else {
+          if (messagesEl) messagesEl.innerHTML = this.getWelcomeHTML();
+          requestAnimationFrame(() => this.setupSuggestionChips());
+        }
+        if (data.usage) this.updateTokenInfo(data.usage);
+        this.loadSessions();
+        this.scrollToBottom(true);
+        break;
     }
   }
 
   // ═══ MESSAGE MANAGEMENT ═══
 
   addMessage(role, content, opts = {}) {
-    const msg = { role, content, timestamp: new Date(), ...opts };
+    const msg = { role, content, timestamp: opts.timestamp || new Date(), ...opts };
     this.messages.push(msg);
     if (this.rendered) {
       this.appendMessageDOM(msg);
@@ -270,7 +546,7 @@ export class ChatView {
     if (msg.streaming) {
       contentHtml = this.getTypingIndicatorHTML();
     } else if (msg.role === 'assistant') {
-      contentHtml = this.processMarkdownWithCopyButtons(msg.content);
+      contentHtml = renderMarkdown(msg.content);
     } else {
       contentHtml = escapeHtml(msg.content);
     }
@@ -289,6 +565,12 @@ export class ChatView {
     `;
 
     messagesEl.appendChild(div);
+
+    // Bug 5 fix: add copy buttons to code blocks for non-streaming assistant messages
+    if (!msg.streaming && msg.role === 'assistant') {
+      const contentEl = div.querySelector('.message-content');
+      this.addCopyButtonsToCodeBlocks(contentEl);
+    }
   }
 
   // ═══ STREAMING UPDATES ═══
@@ -301,10 +583,6 @@ export class ChatView {
     // Remove typing indicator if still showing
     const typingEl = contentEl.querySelector('.typing-indicator');
     if (typingEl) typingEl.remove();
-
-    // Preserve thinking block and tool cards
-    const thinkingBlock = contentEl.querySelector('.thinking-block');
-    const toolCards = contentEl.querySelectorAll('.tool-call-card');
 
     // Build the text content section
     let textContainer = contentEl.querySelector('.stream-text');
@@ -334,7 +612,6 @@ export class ChatView {
 
     let thinkingBlock = contentEl.querySelector('.thinking-block');
     if (!thinkingBlock) {
-      // Start thinking timer
       this.thinkingStartTime = Date.now();
       this.startThinkingTimer();
 
@@ -366,8 +643,6 @@ export class ChatView {
 
     const thinkingContent = thinkingBlock.querySelector('.thinking-content');
     thinkingContent.textContent = this.currentThinkingContent;
-
-    // Auto-scroll the thinking content to bottom
     thinkingContent.scrollTop = thinkingContent.scrollHeight;
 
     if (this.autoScroll) this.scrollToBottom();
@@ -404,7 +679,6 @@ export class ChatView {
     const contentEl = document.getElementById(`msg-content-${idx}`);
     if (!contentEl) return;
 
-    // Remove typing indicator if still showing
     const typingEl = contentEl.querySelector('.typing-indicator');
     if (typingEl) typingEl.remove();
 
@@ -440,7 +714,6 @@ export class ChatView {
       </div>
     `;
 
-    // Insert before the stream-text container if it exists, otherwise append
     const streamText = contentEl.querySelector('.stream-text');
     if (streamText) {
       contentEl.insertBefore(card, streamText);
@@ -448,7 +721,6 @@ export class ChatView {
       contentEl.appendChild(card);
     }
 
-    // Setup toggle
     const header = card.querySelector('.tool-call-header');
     header.addEventListener('click', () => {
       const chevron = card.querySelector('.tool-call-expand-chevron');
@@ -461,7 +733,6 @@ export class ChatView {
   }
 
   updateToolCallStatus(name, result) {
-    // Find the latest running tool card for this name
     const cards = document.querySelectorAll('.tool-call-card.running');
     for (let i = cards.length - 1; i >= 0; i--) {
       const card = cards[i];
@@ -469,25 +740,21 @@ export class ChatView {
         const success = result?.success !== false;
         const statusClass = success ? 'success' : 'error';
 
-        // Update card class
         card.classList.remove('running');
         card.classList.add(statusClass);
 
-        // Update badge
         const badge = card.querySelector('.tool-step-badge');
         if (badge) {
           badge.classList.remove('running');
           badge.classList.add(statusClass);
         }
 
-        // Update status text
         const statusEl = card.querySelector('.tool-call-status');
         if (statusEl) {
           statusEl.className = `tool-call-status ${statusClass}`;
           statusEl.innerHTML = success ? '✅ Done' : '❌ Failed';
         }
 
-        // Show result
         const cardId = card.id;
         const resultSection = document.getElementById(`${cardId}-result-section`);
         const resultJson = document.getElementById(`${cardId}-result-json`);
@@ -515,15 +782,12 @@ export class ChatView {
     const msgEl = document.getElementById(`msg-${idx}`);
     const contentEl = document.getElementById(`msg-content-${idx}`);
 
-    // Remove streaming class from message
     if (msgEl) msgEl.classList.remove('streaming');
 
     if (contentEl) {
-      // Remove typing indicator
       const typingEl = contentEl.querySelector('.typing-indicator');
       if (typingEl) typingEl.remove();
 
-      // Remove streaming cursor
       const cursor = contentEl.querySelector('.streaming-cursor');
       if (cursor) cursor.remove();
 
@@ -532,11 +796,9 @@ export class ChatView {
       if (thinkingBlock) {
         thinkingBlock.classList.remove('active');
 
-        // Remove pulse dot
         const pulse = thinkingBlock.querySelector('.thinking-pulse');
         if (pulse) pulse.remove();
 
-        // Update label
         const labelText = thinkingBlock.querySelector('.thinking-label-text');
         if (labelText) {
           const elapsed = this.thinkingStartTime
@@ -548,13 +810,11 @@ export class ChatView {
           labelText.textContent = `Reasoning complete (${timeStr})`;
         }
 
-        // Collapse thinking content, but keep it expandable
         const chevron = thinkingBlock.querySelector('.thinking-chevron');
         const thinkingContent = thinkingBlock.querySelector('.thinking-content');
         if (chevron) chevron.classList.remove('open');
         if (thinkingContent) thinkingContent.classList.remove('expanded');
 
-        // Remove elapsed timer display
         const elapsedEl = thinkingBlock.querySelector('.thinking-elapsed');
         if (elapsedEl) elapsedEl.remove();
       }
@@ -569,6 +829,12 @@ export class ChatView {
         `;
         contentEl.appendChild(errorEl);
       }
+
+      // Bug 5 fix: add copy buttons to final rendered code blocks
+      const streamText = contentEl.querySelector('.stream-text');
+      if (streamText) {
+        this.addCopyButtonsToCodeBlocks(streamText);
+      }
     }
 
     // Update the stored message content
@@ -577,10 +843,11 @@ export class ChatView {
       this.messages[idx].streaming = false;
     }
 
-    // Update token info
     if (data.usage) this.updateTokenInfo(data.usage);
-
     this.thinkingStartTime = null;
+
+    // Refresh session list to update message counts
+    this.loadSessions();
   }
 
   // ═══ UI HELPERS ═══
@@ -606,7 +873,14 @@ export class ChatView {
   updateTokenInfo(usage) {
     const el = document.getElementById('chat-token-info');
     if (el) {
-      el.textContent = `🪙 ${(usage.inputTokens || 0).toLocaleString()} in / ${(usage.outputTokens || 0).toLocaleString()} out · ${usage.turns || 0} turns`;
+      el.textContent = `Tokens: ${(usage.inputTokens || 0).toLocaleString()} in / ${(usage.outputTokens || 0).toLocaleString()} out`;
+    }
+  }
+
+  updateHeaderTitle(title) {
+    const headerTitle = document.getElementById('chat-header-title');
+    if (headerTitle) {
+      headerTitle.textContent = title;
     }
   }
 
@@ -633,18 +907,10 @@ export class ChatView {
     `;
   }
 
-  processMarkdownWithCopyButtons(text) {
-    if (!text) return '';
-    const html = renderMarkdown(text);
-    // We'll add copy buttons via DOM manipulation after inserting
-    return html;
-  }
-
   addCopyButtonsToCodeBlocks(container) {
     if (!container) return;
     const preBlocks = container.querySelectorAll('pre');
     preBlocks.forEach(pre => {
-      // Don't add if already has one
       if (pre.querySelector('.code-copy-btn')) return;
 
       const copyBtn = document.createElement('button');
@@ -742,7 +1008,6 @@ export class ChatView {
     `;
   }
 
-  // Called after render to attach suggestion chip listeners (called from render)
   setupSuggestionChips() {
     document.querySelectorAll('.suggestion-chip[data-suggestion]').forEach(chip => {
       chip.addEventListener('click', () => {
@@ -751,7 +1016,6 @@ export class ChatView {
         if (input) {
           input.value = suggestion;
           input.focus();
-          // Actually send the message
           this.sendMessage();
         }
       });

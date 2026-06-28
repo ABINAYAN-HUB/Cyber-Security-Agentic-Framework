@@ -7,6 +7,7 @@ import { Server as SocketServer } from 'socket.io';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync, readdirSync } from 'fs';
+import { randomUUID } from 'crypto';
 
 import { Agent } from './agent.js';
 import config from './config.js';
@@ -347,12 +348,85 @@ export async function startWebServer(options = {}) {
   });
 
   // ═══════════════════════════════════════════
+  // CHAT SESSION API
+  // ═══════════════════════════════════════════
+
+  // List sessions
+  app.get('/api/chat/sessions', (req, res) => {
+    try {
+      const sessions = memory.getChatSessions();
+      res.json({ sessions });
+    } catch (err) {
+      res.json({ sessions: [], error: err.message });
+    }
+  });
+
+  // Get session with messages
+  app.get('/api/chat/sessions/:id', (req, res) => {
+    try {
+      const session = memory.getChatSession(req.params.id);
+      if (!session) return res.status(404).json({ error: 'Session not found' });
+      const messages = memory.getSessionMessages(req.params.id);
+      res.json({ session, messages });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Create session
+  app.post('/api/chat/sessions', (req, res) => {
+    try {
+      const id = randomUUID();
+      const title = req.body.title || 'New Chat';
+      const session = memory.createChatSession(id, title);
+      res.json({ session });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Rename session
+  app.put('/api/chat/sessions/:id', (req, res) => {
+    try {
+      const { title } = req.body;
+      if (!title) return res.status(400).json({ error: 'Title required' });
+      memory.updateSessionTitle(req.params.id, title);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Delete session
+  app.delete('/api/chat/sessions/:id', (req, res) => {
+    try {
+      memory.deleteChatSession(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Search sessions
+  app.get('/api/chat/search', (req, res) => {
+    try {
+      const { q } = req.query;
+      if (!q) return res.json({ sessions: [] });
+      const sessions = memory.searchChatSessions(q);
+      res.json({ sessions });
+    } catch (err) {
+      res.json({ sessions: [], error: err.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════
   // WEBSOCKET — Real-time Agent Chat
   // ═══════════════════════════════════════════
 
   io.on('connection', (socket) => {
     console.log(`[Web] Client connected: ${socket.id}`);
     let currentAbortController = null;
+    let activeSessionId = null;
 
     // Send initial state
     socket.emit('chat:ready', {
@@ -366,9 +440,29 @@ export async function startWebServer(options = {}) {
       const { message } = data;
       if (!message || !message.trim()) return;
 
+      // Auto-create session if none active
+      if (!activeSessionId) {
+        const id = randomUUID();
+        const title = message.slice(0, 60) + (message.length > 60 ? '...' : '');
+        memory.createChatSession(id, title);
+        activeSessionId = id;
+        socket.emit('chat:session_created', { id, title });
+      }
+
+      // Auto-title: if this is the first message in the session, set the title
+      const session = memory.getChatSession(activeSessionId);
+      if (session && session.title === 'New Chat') {
+        const title = message.slice(0, 60) + (message.length > 60 ? '...' : '');
+        memory.updateSessionTitle(activeSessionId, title);
+      }
+
+      // Persist user message
+      memory.storeSessionMessage(activeSessionId, 'user', message);
+
       // Create an abort controller for this message
       currentAbortController = new AbortController();
       const signal = currentAbortController.signal;
+      let assistantContent = '';
 
       try {
         await agent.processMessage(
@@ -377,6 +471,7 @@ export async function startWebServer(options = {}) {
           async (update) => {
             if (signal.aborted) return;
             if (update.type === 'text') {
+              assistantContent += update.content;
               socket.emit('chat:text', { content: update.content });
             } else if (update.type === 'thinking') {
               socket.emit('chat:thinking', { content: update.content });
@@ -397,6 +492,11 @@ export async function startWebServer(options = {}) {
           }
         );
 
+        // Persist assistant response
+        if (assistantContent && activeSessionId) {
+          memory.storeSessionMessage(activeSessionId, 'assistant', assistantContent);
+        }
+
         // Turn complete
         if (!signal.aborted) {
           socket.emit('chat:done', { usage: agent.getUsage() });
@@ -408,6 +508,40 @@ export async function startWebServer(options = {}) {
       } finally {
         currentAbortController = null;
       }
+    });
+
+    // Switch to a different session
+    socket.on('chat:switch_session', (data) => {
+      const { sessionId } = data;
+      const session = memory.getChatSession(sessionId);
+      if (!session) {
+        socket.emit('chat:error', { error: 'Session not found' });
+        return;
+      }
+      activeSessionId = sessionId;
+      // Load messages from this session into the agent
+      const messages = memory.getSessionMessages(sessionId);
+      agent.clearHistory();
+      messages.forEach(msg => {
+        if (msg.role === 'user' || msg.role === 'assistant') {
+          agent.messages.push({ role: msg.role, content: msg.content });
+        }
+      });
+      socket.emit('chat:session_loaded', {
+        sessionId,
+        messages: messages.map(m => ({ role: m.role, content: m.content, timestamp: m.created_at })),
+        usage: agent.getUsage(),
+      });
+    });
+
+    // Create new session
+    socket.on('chat:new_session', () => {
+      const id = randomUUID();
+      memory.createChatSession(id, 'New Chat');
+      activeSessionId = id;
+      agent.clearHistory();
+      socket.emit('chat:session_created', { id, title: 'New Chat' });
+      socket.emit('chat:cleared', {});
     });
 
     // Abort current generation
@@ -422,6 +556,16 @@ export async function startWebServer(options = {}) {
     // Clear history
     socket.on('chat:clear', () => {
       agent.clearHistory();
+      // If we have an active session, delete its messages and reset the agent
+      if (activeSessionId) {
+        try {
+          memory.deleteChatSession(activeSessionId);
+        } catch (e) { /* ignore if already deleted */ }
+        const id = randomUUID();
+        memory.createChatSession(id, 'New Chat');
+        activeSessionId = id;
+        socket.emit('chat:session_created', { id, title: 'New Chat' });
+      }
       socket.emit('chat:cleared', {});
     });
 
