@@ -6,7 +6,7 @@ import { createServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { randomUUID } from 'crypto';
 
 import { Agent } from './agent.js';
@@ -308,6 +308,36 @@ export async function startWebServer(options = {}) {
     }
   });
 
+  // API: Memory & Files
+  app.get('/api/memory', (req, res) => {
+    res.json(memory.search(''));
+  });
+
+  // API: File Reader (Used for editing artifacts)
+  app.get('/api/file', (req, res) => {
+    const filepath = req.query.path;
+    if (!filepath) return res.status(400).json({ error: 'Path required' });
+    try {
+      if (!existsSync(filepath)) return res.status(404).json({ error: 'File not found' });
+      const content = readFileSync(filepath, 'utf8');
+      res.json({ content });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // API: File Writer
+  app.post('/api/file', express.json(), (req, res) => {
+    const { path: filepath, content } = req.body;
+    if (!filepath || content === undefined) return res.status(400).json({ error: 'Path and content required' });
+    try {
+      writeFileSync(filepath, content, 'utf8');
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Agent usage
   app.get('/api/agent-usage', (req, res) => {
     res.json(agent.getUsage());
@@ -497,7 +527,8 @@ export async function startWebServer(options = {}) {
                 result: toolEvent.result,
               });
             }
-          }
+          },
+          signal
         );
 
         // Persist assistant response

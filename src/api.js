@@ -98,12 +98,12 @@ export async function checkServer() {
   }
 }
 
-export async function* streamChat(messages, tools, systemPrompt) {
+export async function* streamChat(messages, tools = null, systemPrompt = null, signal = null) {
   const body = {
     model: config.model,
     messages: [
-      { role: 'system', content: systemPrompt },
-      ...messages,
+      { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+      ...messages
     ],
     temperature: config.temperature,
     top_p: config.topP,
@@ -131,11 +131,12 @@ export async function* streamChat(messages, tools, systemPrompt) {
 
   let response;
   try {
+    const fetchSignal = signal || AbortSignal.timeout(1800000); // 30 minute hard timeout
     response = await fetchWithRetry(apiUrl, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(1800000), // 30 minute hard timeout
+      signal: fetchSignal,
     });
   } catch (e) {
     throw new Error(`Cannot connect to NVIDIA NIM API: ${e.message}`);

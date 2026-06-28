@@ -29,7 +29,7 @@ export class Agent {
    * Process a user message through the agentic loop.
    * Loops: send to LLM → if tool calls, execute them → re-send → repeat until text response.
    */
-  async processMessage(userMessage, onUpdate = null, onTool = null) {
+  async processMessage(userMessage, onUpdate = null, onTool = null, signal = null) {
     this.messages.push({ role: 'user', content: userMessage });
     this.turnCount++;
 
@@ -51,15 +51,24 @@ export class Agent {
     while (loopCount < maxLoops) {
       loopCount++;
 
+      if (signal && signal.aborted) break;
+
       try {
-        const result = await this._streamResponse(onUpdate);
+        const result = await this._streamResponse(onUpdate, signal);
 
         if (result.toolCalls && result.toolCalls.length > 0) {
           // Execute tool calls SEQUENTIALLY to guarantee message history ordering
-          // Promise.all() causes race conditions where tool results push to
-          // this.messages in random order, corrupting the conversation
+          let requiresFeedback = false;
           for (const tc of result.toolCalls) {
-            await this._handleToolCall(tc, onTool);
+            const toolResult = await this._handleToolCall(tc, onTool);
+            if (toolResult && toolResult.requestedFeedback) {
+              requiresFeedback = true;
+            }
+          }
+          
+          if (requiresFeedback) {
+            if (!this.isSubagent) ui.printWarning("Agent paused execution to wait for user approval.");
+            break;
           }
           
           // Continue the loop — LLM needs to process all tool results
@@ -109,7 +118,7 @@ export class Agent {
   /**
    * Stream a response from the LLM, collecting text and tool calls.
    */
-  async _streamResponse(onUpdate = null) {
+  async _streamResponse(onUpdate = null, signal = null) {
     let spinner;
     if (!this.isSubagent) {
       spinner = ui.createSpinner('Thinking...');
@@ -121,7 +130,8 @@ export class Agent {
     let spinnerStopped = false;
 
     try {
-      for await (const chunk of streamChat(this.messages, toolDefinitions, this.systemPrompt)) {
+      for await (const chunk of streamChat(this.messages, toolDefinitions, this.systemPrompt, signal)) {
+        if (signal && signal.aborted) break;
         if (chunk.type === 'text') {
           if (!spinnerStopped && !this.isSubagent) {
             spinner.stop();
@@ -203,7 +213,7 @@ export class Agent {
       };
       this._addToolResult(toolCall.id, name, errorResult);
       if (!this.isSubagent) ui.printToolResult(name, errorResult);
-      return;
+      return errorResult;
     }
 
     // Construct a unique signature for this exact tool execution
@@ -217,7 +227,7 @@ export class Agent {
       };
       this._addToolResult(toolCall.id, name, loopError);
       if (!this.isSubagent) ui.printToolResult(name, loopError);
-      return;
+      return loopError;
     }
 
     // Generic Anti-Loop: Prevent alternating failure loops (A -> B -> C -> A)
@@ -229,7 +239,7 @@ export class Agent {
       };
       this._addToolResult(toolCall.id, name, loopError);
       if (!this.isSubagent) ui.printToolResult(name, loopError);
-      return;
+      return loopError;
     }
 
     // Show the tool call
@@ -242,7 +252,7 @@ export class Agent {
       const errorResult = { success: false, error: `Unknown tool: ${name}` };
       this._addToolResult(toolCall.id, name, errorResult);
       if (!this.isSubagent) ui.printToolResult(name, errorResult);
-      return;
+      return errorResult;
     }
 
     // Permission check
@@ -251,7 +261,7 @@ export class Agent {
       const deniedResult = { success: false, error: 'User denied permission' };
       this._addToolResult(toolCall.id, name, deniedResult);
       if (!this.isSubagent) ui.printToolResult(name, deniedResult);
-      return;
+      return deniedResult;
     }
 
     // --- SEMANTIC EXECUTION CACHE INTERCEPT ---
@@ -279,7 +289,7 @@ export class Agent {
 
         this._addToolResult(toolCall.id, name, cachedResult);
         if (onTool) onTool({ type: 'done', name, args, result: cachedResult });
-        return;
+        return cachedResult;
       }
     }
 
@@ -339,6 +349,7 @@ export class Agent {
 
       // ═══ TOOL TELEMETRY — Log execution for report generation ═══
       toolBridge.logToolUsage(name, args, result, Date.now() - execStart);
+      return result;
     } catch (error) {
       if (execSpinner) execSpinner.stop();
       
@@ -367,13 +378,14 @@ export class Agent {
         this._addToolResult(toolCall.id, name, healResult);
         if (!this.isSubagent) ui.printToolResult(name, healResult);
         if (onTool) await onTool({ type: 'done', name, args, result: healResult });
-        return;
+        return healResult;
       }
 
       const errorResult = { success: false, error: error.message };
       this._addToolResult(toolCall.id, name, errorResult);
       if (!this.isSubagent) ui.printToolResult(name, errorResult);
       if (onTool) await onTool({ type: 'done', name, args, result: errorResult });
+      return errorResult;
     }
   }
 

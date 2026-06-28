@@ -153,7 +153,7 @@ export class ChatView {
     container.addEventListener('scroll', () => {
       const { scrollTop, scrollHeight, clientHeight } = container;
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      this.autoScroll = distanceFromBottom < 100;
+      this.autoScroll = distanceFromBottom < 150;
       this.updateScrollFab();
     });
 
@@ -464,6 +464,10 @@ export class ChatView {
           tc.result = data.result;
         }
         this.updateToolCallStatus(data.name, data.result);
+        
+        if (data.result && data.result.requestedFeedback) {
+          this.renderApprovalCard(data.result);
+        }
         break;
       }
 
@@ -783,6 +787,122 @@ export class ChatView {
         break;
       }
     }
+    if (this.autoScroll) this.scrollToBottom();
+  }
+
+  // ═══ APPROVAL CARD (PLANNING MODE) ═══
+
+  renderApprovalCard(result) {
+    const idx = this.messages.length - 1;
+    const contentEl = document.getElementById(`msg-content-${idx}`);
+    if (!contentEl) return;
+
+    // We don't want the approval card to be buried under streaming text, so we append it at the end
+    const cardId = `approval-${Date.now()}`;
+    const card = document.createElement('div');
+    card.className = 'approval-card';
+    card.id = cardId;
+
+    const summary = result.summary || 'The agent has proposed a plan or action that requires your explicit approval.';
+
+    card.innerHTML = `
+      <div class="approval-header">
+        <span class="approval-icon">🛡️</span>
+        <span class="approval-title">User Approval Required</span>
+      </div>
+      <div class="approval-body">
+        <p class="approval-summary">${escapeHtml(summary)}</p>
+        <p class="approval-hint">Review the plan above. The agent is paused and waiting for your decision.</p>
+        <div class="approval-actions">
+          <button class="btn-proceed" id="btn-proceed-${cardId}">Proceed</button>
+          <button class="btn-edit" id="btn-edit-${cardId}">Edit Plan</button>
+          <button class="btn-reject" id="btn-reject-${cardId}">Reject</button>
+        </div>
+      </div>
+    `;
+
+    contentEl.appendChild(card);
+
+    const btnProceed = document.getElementById(`btn-proceed-${cardId}`);
+    const btnEdit = document.getElementById(`btn-edit-${cardId}`);
+    const btnReject = document.getElementById(`btn-reject-${cardId}`);
+
+    btnProceed.addEventListener('click', () => {
+      card.innerHTML = `<div class="approval-header success"><span class="approval-icon">✅</span><span class="approval-title">Plan Approved</span></div>`;
+      const input = document.getElementById('chat-input');
+      input.value = "Approved. Please proceed with the plan.";
+      this.sendMessage();
+    });
+
+    btnEdit.addEventListener('click', async () => {
+      if (!result.path) {
+        Toast.error('Cannot edit plan: file path not available.');
+        return;
+      }
+      btnEdit.disabled = true;
+      btnEdit.textContent = 'Loading...';
+
+      try {
+        const res = await fetch(`/api/file?path=${encodeURIComponent(result.path)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        // Transform body into editor
+        const bodyEl = card.querySelector('.approval-body');
+        bodyEl.innerHTML = `
+          <p class="approval-hint">Edit the markdown plan below. Changes are saved automatically when you proceed.</p>
+          <textarea class="approval-editor" id="editor-${cardId}">${escapeHtml(data.content)}</textarea>
+          <div class="approval-actions">
+            <button class="btn-proceed" id="btn-save-${cardId}">Save & Proceed</button>
+            <button class="btn-reject" id="btn-cancel-${cardId}">Cancel</button>
+          </div>
+        `;
+
+        document.getElementById(`btn-save-${cardId}`).addEventListener('click', async () => {
+          const newContent = document.getElementById(`editor-${cardId}`).value;
+          const saveBtn = document.getElementById(`btn-save-${cardId}`);
+          saveBtn.disabled = true;
+          saveBtn.textContent = 'Saving...';
+
+          try {
+            const saveRes = await fetch('/api/file', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: result.path, content: newContent })
+            });
+            if (!saveRes.ok) throw new Error(await saveRes.text());
+            
+            card.innerHTML = `<div class="approval-header success"><span class="approval-icon">✅</span><span class="approval-title">Plan Edited & Approved</span></div>`;
+            const input = document.getElementById('chat-input');
+            input.value = "I have updated the plan. Approved. Please proceed with the plan.";
+            this.sendMessage();
+          } catch (err) {
+            Toast.error(`Save failed: ${err.message}`);
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save & Proceed';
+          }
+        });
+
+        document.getElementById(`btn-cancel-${cardId}`).addEventListener('click', () => {
+          // Re-render the original card
+          this.renderApprovalCard(result);
+          card.remove(); // removes the current editor card
+        });
+
+      } catch (err) {
+        Toast.error(`Failed to load plan: ${err.message}`);
+        btnEdit.disabled = false;
+        btnEdit.textContent = 'Edit Plan';
+      }
+    });
+
+    btnReject.addEventListener('click', () => {
+      card.innerHTML = `<div class="approval-header error"><span class="approval-icon">❌</span><span class="approval-title">Plan Rejected</span></div>`;
+      const input = document.getElementById('chat-input');
+      input.value = "Plan rejected. Please modify your approach: ";
+      input.focus();
+    });
+
     if (this.autoScroll) this.scrollToBottom();
   }
 
