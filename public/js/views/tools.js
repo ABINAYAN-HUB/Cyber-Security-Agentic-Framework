@@ -209,39 +209,79 @@ export class ToolsView {
         const progressEl = document.getElementById('install-progress');
         if (progressEl) {
           progressEl.style.display = 'block';
-          progressEl.innerHTML = '<div class="text-sm text-muted">⏳ Installing missing tools... This may take several minutes.</div>';
+          progressEl.innerHTML = '<div class="text-sm text-muted">⏳ Starting background install...</div>';
         }
 
         try {
-          const result = await this.app.apiPost('/tools/install-all', {});
-          if (result?.success) {
-            Toast.success(result.message || 'Tools installed!');
-            if (progressEl) {
-              const successTools = (result.results || []).filter(r => r.success).map(r => r.tool);
-              const failedTools = (result.results || []).filter(r => !r.success).map(r => `${r.tool} (${r.error?.slice(0, 40) || 'failed'})`);
-              progressEl.innerHTML = `
-                <div class="text-sm" style="margin-top:var(--sp-2);">
-                  <span class="badge success">✅ ${result.installed || 0} installed</span>
-                  ${result.failed ? `<span class="badge danger">❌ ${result.failed} failed</span>` : ''}
-                </div>
-                ${successTools.length > 0 ? `<div class="text-xs text-muted" style="margin-top:4px;">Installed: ${successTools.join(', ')}</div>` : ''}
-                ${failedTools.length > 0 ? `<div class="text-xs" style="margin-top:4px; color:var(--rose);">Failed: ${failedTools.join(', ')}</div>` : ''}
-              `;
-            }
-            // Refresh the view after install
-            setTimeout(() => {
-              const container = document.getElementById('page-content');
-              if (container) this.render(container);
-            }, 2000);
-          } else {
-            Toast.error(result?.error || 'Install failed');
+          // Trigger background install (returns immediately)
+          const triggerResult = await this.app.apiPost('/tools/install-all', {});
+          if (!triggerResult?.success) {
+            Toast.error(triggerResult?.error || 'Install failed');
+            installAllBtn.disabled = false;
+            installAllBtn.textContent = '📦 Install All Missing Tools';
+            return;
           }
+
+          const totalTools = triggerResult.total || 0;
+          Toast.success(`Installing ${totalTools} tools in background...`);
+
+          // Poll for progress every 3 seconds
+          const pollInterval = setInterval(async () => {
+            try {
+              const status = await this.app.api('/tools/install-status');
+              if (!status) return;
+
+              const r = status.result || {};
+              const pct = r.total ? Math.round((r.completed / r.total) * 100) : 0;
+
+              if (progressEl) {
+                progressEl.innerHTML = `
+                  <div style="height:4px; background:rgba(255,255,255,0.06); border-radius:4px; overflow:hidden; margin-bottom:8px;">
+                    <div style="height:100%; width:${pct}%; background:linear-gradient(90deg,var(--cyan),var(--violet)); border-radius:4px; transition:width 1s ease;"></div>
+                  </div>
+                  <div class="text-sm text-muted">
+                    📦 ${r.completed || 0}/${r.total || 0} tools processed (${pct}%)
+                    ${r.installed ? ` • ✅ ${r.installed} installed` : ''}
+                    ${r.failed ? ` • ❌ ${r.failed} failed` : ''}
+                  </div>
+                `;
+              }
+
+              // Check if done
+              if (!status.inProgress && r.done) {
+                clearInterval(pollInterval);
+                Toast.success(r.message || 'Install complete!');
+
+                if (progressEl) {
+                  const successTools = (r.results || []).filter(x => x.success).map(x => x.tool);
+                  const failedTools = (r.results || []).filter(x => !x.success).map(x => `${x.tool} (${(x.error || '').slice(0, 40)})`);
+                  progressEl.innerHTML = `
+                    <div class="text-sm" style="margin-top:var(--sp-2);">
+                      <span class="badge success">✅ ${r.installed || 0} installed</span>
+                      ${r.failed ? `<span class="badge danger">❌ ${r.failed} failed</span>` : ''}
+                    </div>
+                    ${successTools.length > 0 ? `<div class="text-xs text-muted" style="margin-top:4px;">Installed: ${successTools.join(', ')}</div>` : ''}
+                    ${failedTools.length > 0 ? `<div class="text-xs" style="margin-top:4px; color:var(--rose);">Failed: ${failedTools.join(', ')}</div>` : ''}
+                  `;
+                }
+
+                installAllBtn.disabled = false;
+                installAllBtn.textContent = '📦 Install All Missing Tools';
+
+                // Refresh the view after a delay
+                setTimeout(() => {
+                  const container = document.getElementById('page-content');
+                  if (container) this.render(container);
+                }, 2000);
+              }
+            } catch { /* ignore poll errors */ }
+          }, 3000);
+
         } catch (err) {
           Toast.error('Install request failed: ' + err.message);
+          installAllBtn.disabled = false;
+          installAllBtn.textContent = '📦 Install All Missing Tools';
         }
-
-        installAllBtn.disabled = false;
-        installAllBtn.textContent = '📦 Install All Missing Tools';
       });
     }
 

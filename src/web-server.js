@@ -345,8 +345,15 @@ export async function startWebServer(options = {}) {
     }
   });
 
-  // Install all missing Kali tools
+  // Install all missing Kali tools (NON-BLOCKING — runs in background)
+  let installInProgress = false;
+  let installResult = null;
+
   app.post('/api/tools/install-all', async (req, res) => {
+    if (installInProgress) {
+      return res.json({ success: false, error: 'Tool installation is already running. Check /api/tools/install-status.' });
+    }
+
     const allTools = getAllTools();
     const installed = detectInstalledTools();
     const missing = allTools.filter(t => !installed.has(t.name));
@@ -355,25 +362,38 @@ export async function startWebServer(options = {}) {
       return res.json({ success: true, message: 'All tools are already installed!', results: [] });
     }
 
-    // Run installations and collect results
-    const results = [];
-    for (const tool of missing) {
-      try {
-        const result = toolInstaller.installTool(tool.name);
-        results.push({ tool: tool.name, ...result });
-      } catch (err) {
-        results.push({ tool: tool.name, success: false, error: err.message });
-      }
-    }
+    // Return immediately — run installs in the background
+    installInProgress = true;
+    installResult = { total: missing.length, completed: 0, installed: 0, failed: 0, results: [], done: false };
+    res.json({ success: true, message: `Installing ${missing.length} tools in background. Poll /api/tools/install-status for progress.`, total: missing.length });
 
-    const successCount = results.filter(r => r.success).length;
+    // Background install loop (does NOT block the event loop between tools)
+    (async () => {
+      for (const tool of missing) {
+        try {
+          // Yield to event loop between installs so Socket.io stays alive
+          await new Promise(r => setTimeout(r, 100));
+          const result = toolInstaller.installTool(tool.name);
+          installResult.results.push({ tool: tool.name, ...result });
+          if (result.success) installResult.installed++;
+          else installResult.failed++;
+        } catch (err) {
+          installResult.results.push({ tool: tool.name, success: false, error: err.message });
+          installResult.failed++;
+        }
+        installResult.completed++;
+      }
+      installResult.done = true;
+      installResult.message = `Installed ${installResult.installed}/${installResult.total} tools`;
+      installInProgress = false;
+    })();
+  });
+
+  // Poll install progress
+  app.get('/api/tools/install-status', (req, res) => {
     res.json({
-      success: true,
-      message: `Installed ${successCount}/${missing.length} tools`,
-      total: missing.length,
-      installed: successCount,
-      failed: missing.length - successCount,
-      results,
+      inProgress: installInProgress,
+      result: installResult,
     });
   });
 
