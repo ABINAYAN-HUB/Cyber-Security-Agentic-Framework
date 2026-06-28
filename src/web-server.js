@@ -437,8 +437,16 @@ export async function startWebServer(options = {}) {
 
     // Handle chat messages
     socket.on('chat:message', async (data) => {
-      const { message } = data;
+      const { message, sessionId } = data;
       if (!message || !message.trim()) return;
+
+      // Use the client's provided sessionId if valid (fixes reconnection split bug)
+      if (sessionId && sessionId !== activeSessionId) {
+        const existingSession = memory.getChatSession(sessionId);
+        if (existingSession) {
+          activeSessionId = sessionId;
+        }
+      }
 
       // Auto-create session if none active
       if (!activeSessionId) {

@@ -50,6 +50,18 @@ class Memory {
       CREATE INDEX IF NOT EXISTS idx_targets_id ON targets(identifier);
 
       -- ═══════════════════════════════════════════
+      -- Chat Sessions (Web UI History)
+      -- ═══════════════════════════════════════════
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT 'New Chat',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        message_count INTEGER DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_cs_updated ON chat_sessions(updated_at);
+
+      -- ═══════════════════════════════════════════
       -- Conversation Sessions
       -- ═══════════════════════════════════════════
       CREATE TABLE IF NOT EXISTS conversations (
@@ -58,7 +70,8 @@ class Memory {
         role TEXT NOT NULL,
         content TEXT,
         tool_calls TEXT,
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
       );
       CREATE INDEX IF NOT EXISTS idx_conv_session ON conversations(session_id);
 
@@ -315,17 +328,7 @@ class Memory {
       );
       CREATE INDEX IF NOT EXISTS idx_it_name ON installed_tools(tool_name);
 
-      -- ═══════════════════════════════════════════
-      -- CHAT SESSIONS — Web UI chat history
-      -- ═══════════════════════════════════════════
-      CREATE TABLE IF NOT EXISTS chat_sessions (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL DEFAULT 'New Chat',
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now')),
-        message_count INTEGER DEFAULT 0
-      );
-      CREATE INDEX IF NOT EXISTS idx_cs_updated ON chat_sessions(updated_at);
+
     `);
   }
 

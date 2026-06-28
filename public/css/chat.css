@@ -252,6 +252,8 @@
   font-size: 0.95rem;
   line-height: 1.6;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Standard markdown typography fixes for premium feel */

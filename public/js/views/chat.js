@@ -334,6 +334,18 @@ export class ChatView {
       Toast.warning('Cannot switch while streaming');
       return;
     }
+    
+    // Show loading state
+    const messagesEl = document.getElementById('chat-messages');
+    if (messagesEl) {
+      messagesEl.innerHTML = `
+        <div style="display:flex; justify-content:center; padding: 40px; color: var(--text-sub);">
+          <div class="tool-spinner" style="margin-right: 12px; border-color: rgba(0, 240, 255, 0.3); border-top-color: var(--cyan);"></div>
+          <span>Loading session...</span>
+        </div>
+      `;
+    }
+    
     this.app.socket.emit('chat:switch_session', { sessionId });
   }
 
@@ -406,7 +418,10 @@ export class ChatView {
     this.addMessage('assistant', '', { streaming: true });
 
     // Send to server
-    this.app.socket.emit('chat:message', { message });
+    this.app.socket.emit('chat:message', { 
+      message,
+      sessionId: this.activeSessionId 
+    });
   }
 
   stopStreaming() {

@@ -10,7 +10,12 @@ export function renderMarkdown(text) {
         marked.use({ breaks: true, gfm: true });
         markedConfigured = true;
       }
-      return marked.parse(text);
+      
+      const rawHtml = marked.parse(text);
+      if (typeof DOMPurify !== 'undefined') {
+        return DOMPurify.sanitize(rawHtml);
+      }
+      return rawHtml;
     }
   } catch (e) {
     console.warn('Markdown parse error:', e);
