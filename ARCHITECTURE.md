@@ -565,58 +565,89 @@ Main Agent
 
 ---
 
-### 9. Auto-Learner — Threat Intelligence
+### 9. Auto-Learner — Threat Intelligence (MAXED — 20+ Sources)
 
-**File**: `src/auto-learner.js` (680 lines)
+**File**: `src/auto-learner.js` (600+ lines)
 
-A continuously running intelligence engine that fetches, processes, and stores cybersecurity data from multiple threat feeds.
+A continuously running intelligence engine that fetches, processes, and stores cybersecurity data from **20+ global threat feeds**. Fetches **5,000+ items per run** with maximum limits.
 
 #### Data Sources & Pipeline
 
 ```mermaid
 flowchart LR
-    subgraph "Threat Feeds"
-        NVD["🔒 NVD API<br/>(CVEs)"]
-        CISA["🏛️ CISA KEV<br/>(Known Exploits)"]
-        EDB["💀 Exploit-DB<br/>(New Exploits)"]
-        ABUSE["☠️ abuse.ch<br/>(Malware/IOCs)"]
-        GH["🐙 GitHub<br/>(Advisories)"]
-        NUCLEI["⚛️ Nuclei<br/>(Templates)"]
-        HN["📰 HackerNews<br/>(Security News)"]
+    subgraph "Tier 1: Vuln Intel"
+        NVD["🔒 NVD<br/>(2000 CVEs)"]
+        CISA["🏛️ CISA KEV<br/>(ALL)"]
+        GH["🐙 GitHub<br/>(100)"]
+        EPSS["📊 EPSS<br/>(200)"]
     end
 
-    subgraph "Processing"
+    subgraph "Tier 2: Exploit Intel"
+        EDB["💀 Exploit-DB"]
+        ITW["🔥 InTheWild"]
+        PS["📦 PacketStorm"]
+        VLN["🌐 Vulners"]
+    end
+
+    subgraph "Tier 3: Malware/IOCs"
+        ABUSE["☠️ abuse.ch<br/>(2500 items)"]
+        FEODO["🤖 Feodo C2"]
+        SSLBL["🔐 SSL BL"]
+    end
+
+    subgraph "Tier 4: Phishing"
+        OPHISH["🎣 OpenPhish"]
+        PTANK["🐟 PhishTank"]
+        USCAN["🔍 URLScan"]
+    end
+
+    subgraph "Tier 5+6: Knowledge"
+        CAPEC["🗺️ CAPEC<br/>(615)"]
+        NUCLEI["⚛️ Nuclei"]
+        HN["📰 News"]
+        RANSOM["💀 RansomWatch"]
+    end
+
+    subgraph "Pipeline"
         FETCH["Fetch & Parse"]
-        NORM["Normalize Data"]
-        DEDUP["Deduplicate"]
+        DB["💾 SQLite"]
     end
 
-    subgraph "Storage"
-        DB["💾 SQLite<br/>knowledge table"]
-    end
-
-    NVD --> FETCH
-    CISA --> FETCH
-    EDB --> FETCH
-    ABUSE --> FETCH
-    GH --> FETCH
-    NUCLEI --> FETCH
-    HN --> FETCH
-
-    FETCH --> NORM --> DEDUP --> DB
+    NVD & CISA & GH & EPSS --> FETCH
+    EDB & ITW & PS & VLN --> FETCH
+    ABUSE & FEODO & SSLBL --> FETCH
+    OPHISH & PTANK & USCAN --> FETCH
+    CAPEC & NUCLEI & HN & RANSOM --> FETCH
+    FETCH --> DB
 ```
 
-#### Learning Schedule
+#### Learning Schedule (20+ Sources)
 
-| Source | Frequency | Data Type | Storage |
-|--------|-----------|-----------|---------|
-| NVD API | Every hour | CVE records | `knowledge` table |
-| CISA KEV | Daily | Known exploited vulns | `knowledge` table |
-| Exploit-DB | Every hour | New exploits | `knowledge` table |
-| abuse.ch | Every hour | Malware IOCs, URLs | `knowledge` table |
-| GitHub Advisories | Every hour | Security advisories | `knowledge` table |
-| Nuclei Templates | Daily | Detection templates | `knowledge` table |
-| HackerNews | Every hour | Security news | `knowledge` table |
+| # | Source | Frequency | Max Items | Data Type |
+|---|--------|-----------|-----------|-----------|
+| 1 | NVD API | Hourly | 2,000 | CVE records (7-day window) |
+| 2 | CISA KEV | Daily | **ALL** (~1,100+) | Known exploited vulnerabilities |
+| 3 | GitHub Advisories | Hourly | 100 | Security advisories with CVSS |
+| 4 | FIRST.org EPSS | Daily | 200 | Exploit prediction scores |
+| 5 | Exploit-DB | Hourly | 200 | Exploits (GitLab API + RSS) |
+| 6 | InTheWild.io | Daily | 500 | Actively exploited CVEs |
+| 7 | PacketStorm Security | Hourly | RSS | Latest exploits |
+| 8 | Vulners.com | Hourly | 200 | Vulnerability bulletins |
+| 9 | abuse.ch Malware Bazaar | Hourly | 1,000 | Malware samples/hashes |
+| 10 | abuse.ch URLhaus | Hourly | 500 | Malicious URLs |
+| 11 | abuse.ch ThreatFox | Hourly | 1,000 | IOC indicators |
+| 12 | Feodo Tracker | Daily | All | Botnet C2 server IPs |
+| 13 | SSL Blacklist | Daily | All | Malicious SSL certificates |
+| 14 | OpenPhish | Daily | ~300 | Active phishing URLs |
+| 15 | PhishTank | Daily | 500 | Community-verified phishing |
+| 16 | URLScan.io | Hourly | 100 | Recent phishing scans |
+| 17 | MITRE CAPEC | Once | 615 | Attack pattern catalog |
+| 18 | Nuclei Templates | Daily | 100 commits | CVE detection templates |
+| 19 | HackerNews | Hourly | 50 | Security news stories |
+| 20 | CISA Alerts | Daily | 100 | Official advisories |
+| 21 | RansomWatch | Daily | 500 | Ransomware group posts |
+| | **TOTAL PER RUN** | | **~5,000+** | |
+
 
 ---
 
