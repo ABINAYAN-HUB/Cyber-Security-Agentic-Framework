@@ -19,6 +19,8 @@ import { toolDefinitions } from './tools/index.js';
 import { detectInstalledTools, getAllTools, getCategories } from './kali-tools-registry.js';
 import { checkServer } from './api.js';
 import { MITRE_ATTACK, CYBER_KILL_CHAIN } from './frameworks.js';
+import { autoLearner } from './auto-learner.js';
+import { toolInstaller } from './tool-installer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -296,6 +298,82 @@ export async function startWebServer(options = {}) {
       temperature: config.temperature,
       topP: config.topP,
       maxTokens: config.maxTokens,
+    });
+  });
+
+  // ═══ AUTO-LEARNING TRIGGER (v4.0) ═══
+  let learningInProgress = false;
+  let learningResult = null;
+
+  app.post('/api/learn', async (req, res) => {
+    if (learningInProgress) {
+      return res.json({ success: false, error: 'Auto-learning is already running. Please wait.' });
+    }
+    learningInProgress = true;
+    learningResult = null;
+    res.json({ success: true, message: 'Auto-learning started. This will take 30-60 seconds.' });
+
+    try {
+      await autoLearner.run();
+      learningResult = { success: true, stats: autoLearner.getStats() };
+    } catch (err) {
+      learningResult = { success: false, error: err.message };
+    } finally {
+      learningInProgress = false;
+    }
+  });
+
+  app.get('/api/learning-status', (req, res) => {
+    res.json({
+      inProgress: learningInProgress,
+      result: learningResult,
+      stats: autoLearner.getStats(),
+    });
+  });
+
+  // ═══ TOOL INSTALLATION (v4.0) ═══
+
+  // Install a single tool
+  app.post('/api/tools/install', async (req, res) => {
+    const { tool } = req.body;
+    if (!tool) return res.status(400).json({ success: false, error: 'Tool name required' });
+    try {
+      const result = toolInstaller.installTool(tool);
+      res.json(result);
+    } catch (err) {
+      res.json({ success: false, error: err.message });
+    }
+  });
+
+  // Install all missing Kali tools
+  app.post('/api/tools/install-all', async (req, res) => {
+    const allTools = getAllTools();
+    const installed = detectInstalledTools();
+    const missing = allTools.filter(t => !installed.has(t.name));
+
+    if (missing.length === 0) {
+      return res.json({ success: true, message: 'All tools are already installed!', results: [] });
+    }
+
+    // Run installations and collect results
+    const results = [];
+    for (const tool of missing) {
+      try {
+        const result = toolInstaller.installTool(tool.name);
+        results.push({ tool: tool.name, ...result });
+      } catch (err) {
+        results.push({ tool: tool.name, success: false, error: err.message });
+      }
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    res.json({
+      success: true,
+      message: `Installed ${successCount}/${missing.length} tools`,
+      total: missing.length,
+      installed: successCount,
+      failed: missing.length - successCount,
+      results,
     });
   });
 

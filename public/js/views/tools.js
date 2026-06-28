@@ -1,4 +1,5 @@
 // Jarvis Cyber — Tools Browser View
+import { Toast } from '../components/toast.js';
 export class ToolsView {
   constructor(app) {
     this.app = app;
@@ -70,6 +71,22 @@ export class ToolsView {
         </div>
       </div>
 
+      <!-- Install All Button -->
+      ${totalKali - totalInstalled > 0 ? `
+      <div class="glass-panel mb-6 glow-violet" style="border-color:rgba(139,92,246,0.15);">
+        <div class="flex items-center gap-4" style="flex-wrap:wrap;">
+          <div style="flex:1; min-width:200px;">
+            <div class="text-lg" style="font-weight:700; color:var(--text-primary); margin-bottom:4px;">📦 ${totalKali - totalInstalled} Tools Not Installed</div>
+            <div class="text-sm text-muted">Auto-install all missing Kali tools via apt, pip, go, or npm. Some tools require sudo access.</div>
+          </div>
+          <button class="btn btn-primary btn-lg" id="install-all-btn" style="white-space:nowrap;">
+            📦 Install All Missing Tools
+          </button>
+        </div>
+        <div id="install-progress" style="margin-top:var(--sp-3); display:none;"></div>
+      </div>
+      ` : ''}
+
       <!-- Search + Filter -->
       <div class="glass-panel mb-6">
         <div class="flex items-center gap-4 mb-4">
@@ -137,6 +154,7 @@ export class ToolsView {
           <span>${t.installed ? '✅' : '📦'}</span>
           <span>${t.name}</span>
           ${t.isApi ? '<span class="badge info">API</span>' : ''}
+          ${!t.installed && !t.isApi ? `<button class="btn btn-sm btn-secondary install-one-btn" data-tool="${t.name}" style="margin-left:auto; font-size:0.7rem; padding:2px 8px;">Install</button>` : ''}
         </div>
         <div class="tool-desc">${(t.description || '').slice(0, 120)}</div>
         <div class="tool-meta">
@@ -164,6 +182,7 @@ export class ToolsView {
         debounceTimer = setTimeout(() => {
           this.searchQuery = searchInput.value;
           document.getElementById('tools-grid').innerHTML = this.renderTools(this.activeCategory, this.searchQuery);
+          this.setupInstallOneHandlers();
         }, 200);
       });
     }
@@ -178,6 +197,83 @@ export class ToolsView {
 
       this.activeCategory = chip.dataset.category;
       document.getElementById('tools-grid').innerHTML = this.renderTools(this.activeCategory, this.searchQuery);
+      this.setupInstallOneHandlers();
+    });
+
+    // Install All button
+    const installAllBtn = document.getElementById('install-all-btn');
+    if (installAllBtn) {
+      installAllBtn.addEventListener('click', async () => {
+        installAllBtn.disabled = true;
+        installAllBtn.innerHTML = '<div class="spinner" style="width:16px;height:16px;display:inline-block;"></div> Installing...';
+        const progressEl = document.getElementById('install-progress');
+        if (progressEl) {
+          progressEl.style.display = 'block';
+          progressEl.innerHTML = '<div class="text-sm text-muted">⏳ Installing missing tools... This may take several minutes.</div>';
+        }
+
+        try {
+          const result = await this.app.apiPost('/tools/install-all', {});
+          if (result?.success) {
+            Toast.success(result.message || 'Tools installed!');
+            if (progressEl) {
+              const successTools = (result.results || []).filter(r => r.success).map(r => r.tool);
+              const failedTools = (result.results || []).filter(r => !r.success).map(r => `${r.tool} (${r.error?.slice(0, 40) || 'failed'})`);
+              progressEl.innerHTML = `
+                <div class="text-sm" style="margin-top:var(--sp-2);">
+                  <span class="badge success">✅ ${result.installed || 0} installed</span>
+                  ${result.failed ? `<span class="badge danger">❌ ${result.failed} failed</span>` : ''}
+                </div>
+                ${successTools.length > 0 ? `<div class="text-xs text-muted" style="margin-top:4px;">Installed: ${successTools.join(', ')}</div>` : ''}
+                ${failedTools.length > 0 ? `<div class="text-xs" style="margin-top:4px; color:var(--rose);">Failed: ${failedTools.join(', ')}</div>` : ''}
+              `;
+            }
+            // Refresh the view after install
+            setTimeout(() => {
+              const container = document.getElementById('page-content');
+              if (container) this.render(container);
+            }, 2000);
+          } else {
+            Toast.error(result?.error || 'Install failed');
+          }
+        } catch (err) {
+          Toast.error('Install request failed: ' + err.message);
+        }
+
+        installAllBtn.disabled = false;
+        installAllBtn.textContent = '📦 Install All Missing Tools';
+      });
+    }
+
+    // Per-tool install buttons
+    this.setupInstallOneHandlers();
+  }
+
+  setupInstallOneHandlers() {
+    document.querySelectorAll('.install-one-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const toolName = btn.dataset.tool;
+        btn.disabled = true;
+        btn.textContent = '⏳...';
+
+        try {
+          const result = await this.app.apiPost('/tools/install', { tool: toolName });
+          if (result?.success) {
+            Toast.success(`${toolName} installed!`);
+            btn.textContent = '✅';
+            btn.classList.add('btn-success');
+          } else {
+            Toast.error(`Failed to install ${toolName}: ${result?.error?.slice(0, 60) || 'unknown'}`);
+            btn.textContent = '❌';
+            btn.disabled = false;
+          }
+        } catch (err) {
+          Toast.error(`Install error: ${err.message}`);
+          btn.textContent = 'Install';
+          btn.disabled = false;
+        }
+      });
     });
   }
 }

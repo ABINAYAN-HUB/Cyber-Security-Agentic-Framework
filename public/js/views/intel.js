@@ -92,6 +92,28 @@ export class IntelView {
     }
 
     return `
+      <!-- Auto-Learning Control -->
+      <div class="glass-panel mb-6 glow-cyan" style="border-color:rgba(0,240,255,0.15);">
+        <div class="flex items-center gap-4" style="flex-wrap:wrap;">
+          <div style="flex:1; min-width:200px;">
+            <div class="text-lg" style="font-weight:700; color:var(--text-primary); margin-bottom:4px;">🧠 Cyber Intelligence Engine</div>
+            <div class="text-sm text-muted">Fetch CVEs, exploits, IOCs, malware data, and security news from NVD, CISA, Exploit-DB, abuse.ch, GitHub, and HackerNews. Data populates this page automatically.</div>
+          </div>
+          <div class="flex gap-3 items-center">
+            <button class="btn btn-primary btn-lg" id="auto-learn-btn" style="white-space:nowrap;">
+              🧠 Run Auto-Learning
+            </button>
+            <div id="learn-status" class="text-sm text-muted" style="min-width:120px;"></div>
+          </div>
+        </div>
+        <div id="learn-progress" style="margin-top:var(--sp-3); display:none;">
+          <div style="height:4px; background:rgba(255,255,255,0.06); border-radius:4px; overflow:hidden;">
+            <div id="learn-progress-bar" style="height:100%; width:0%; background:linear-gradient(90deg,var(--cyan),var(--violet)); border-radius:4px; transition:width 2s ease;"></div>
+          </div>
+          <div class="text-xs text-muted" style="margin-top:4px;" id="learn-progress-text">Fetching intelligence from 9 sources...</div>
+        </div>
+      </div>
+
       <!-- Stats -->
       <div class="stats-grid mb-6">
         <div class="glass-panel stat-card glow-cyan cyan">
@@ -176,6 +198,55 @@ export class IntelView {
   }
 
   setupHandlers() {
+    // Auto-learn button
+    const learnBtn = document.getElementById('auto-learn-btn');
+    if (learnBtn) {
+      learnBtn.addEventListener('click', async () => {
+        learnBtn.disabled = true;
+        learnBtn.innerHTML = '<div class="spinner" style="width:16px;height:16px;display:inline-block;"></div> Learning...';
+        const statusEl = document.getElementById('learn-status');
+        const progressEl = document.getElementById('learn-progress');
+        const progressBar = document.getElementById('learn-progress-bar');
+        const progressText = document.getElementById('learn-progress-text');
+
+        if (progressEl) progressEl.style.display = 'block';
+
+        // Trigger learning
+        await this.app.apiPost('/learn', {});
+
+        // Poll for completion
+        const sources = ['NVD CVEs', 'CISA KEV', 'Exploit-DB', 'abuse.ch Malware', 'abuse.ch URLs', 'ThreatFox IOCs', 'Tool Knowledge', 'Nuclei Templates', 'Security News', 'GitHub Advisories', 'Nuclei CVEs'];
+        let pollCount = 0;
+
+        const pollInterval = setInterval(async () => {
+          pollCount++;
+          const progress = Math.min(pollCount * 8, 95);
+          if (progressBar) progressBar.style.width = progress + '%';
+          if (progressText && pollCount <= sources.length) {
+            progressText.textContent = `📡 Fetching: ${sources[Math.min(pollCount - 1, sources.length - 1)]}...`;
+          }
+
+          try {
+            const status = await this.app.api('/learning-status');
+            if (!status.inProgress) {
+              clearInterval(pollInterval);
+              if (progressBar) progressBar.style.width = '100%';
+              if (progressText) progressText.textContent = '✅ Complete! Refreshing data...';
+              if (statusEl) {
+                const stats = status.stats || {};
+                statusEl.innerHTML = `<span class="badge success">✅ Done</span> CVEs: ${stats.cves || 0}, Exploits: ${stats.exploits || 0}, Threats: ${stats.threats || 0}`;
+              }
+              // Auto-refresh the page after a brief delay
+              setTimeout(() => {
+                const container = document.getElementById('page-content');
+                if (container) this.render(container);
+              }, 1500);
+            }
+          } catch { /* ignore poll errors */ }
+        }, 3000);
+      });
+    }
+
     const searchBtn = document.getElementById('intel-search-btn');
     const searchInput = document.getElementById('intel-search');
 
