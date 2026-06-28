@@ -157,7 +157,7 @@ class App {
     });
 
     // Forward all chat events to the chat view
-    const chatEvents = ['chat:text', 'chat:thinking', 'chat:tool_start', 'chat:tool_done', 'chat:done', 'chat:error', 'chat:cleared', 'chat:compacted'];
+    const chatEvents = ['chat:text', 'chat:thinking', 'chat:tool_start', 'chat:tool_done', 'chat:done', 'chat:error', 'chat:cleared', 'chat:compacted', 'chat:aborted'];
     chatEvents.forEach(event => {
       this.socket.on(event, (data) => {
         if (this.views.chat && this.views.chat.handleSocketEvent) {

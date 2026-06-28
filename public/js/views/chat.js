@@ -1,4 +1,4 @@
-// Jarvis Cyber — Chat View (Agent Interaction)
+// Jarvis Cyber — Chat View (Agent Interaction) — Production Grade
 import { renderMarkdown, escapeHtml } from '../components/markdown.js';
 import { Toast } from '../components/toast.js';
 
@@ -10,7 +10,12 @@ export class ChatView {
     this.currentStreamContent = '';
     this.currentThinkingContent = '';
     this.currentToolCalls = [];
+    this.toolStepCounter = 0;
     this.rendered = false;
+    this.autoScroll = true;
+    this.thinkingStartTime = null;
+    this.thinkingTimerInterval = null;
+    this.streamStartTime = null;
   }
 
   render(container) {
@@ -19,6 +24,7 @@ export class ChatView {
         <div class="chat-messages" id="chat-messages">
           ${this.messages.length === 0 ? this.getWelcomeHTML() : ''}
         </div>
+        <button class="scroll-to-bottom" id="scroll-to-bottom" title="Jump to bottom">↓</button>
         <div class="chat-input-area">
           <div class="chat-input-wrapper">
             <div class="chat-input-container">
@@ -41,19 +47,26 @@ export class ChatView {
 
     this.rendered = true;
     this.setupInputHandlers();
+    this.setupScrollDetection();
 
     // Re-render existing messages
     if (this.messages.length > 0) {
       const messagesEl = document.getElementById('chat-messages');
       messagesEl.innerHTML = '';
       this.messages.forEach(msg => this.appendMessageDOM(msg));
-      this.scrollToBottom();
+      this.scrollToBottom(true);
     }
+
+    // Setup suggestion chips after DOM is ready
+    requestAnimationFrame(() => this.setupSuggestionChips());
   }
 
   teardown() {
     this.rendered = false;
+    this.stopThinkingTimer();
   }
+
+  // ═══ INPUT HANDLING ═══
 
   setupInputHandlers() {
     const input = document.getElementById('chat-input');
@@ -70,12 +83,61 @@ export class ChatView {
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
+        if (this.isStreaming) {
+          this.stopStreaming();
+        } else {
+          this.sendMessage();
+        }
+      }
+    });
+
+    sendBtn.addEventListener('click', () => {
+      if (this.isStreaming) {
+        this.stopStreaming();
+      } else {
         this.sendMessage();
       }
     });
 
-    sendBtn.addEventListener('click', () => this.sendMessage());
+    // Focus the input on render
+    setTimeout(() => input.focus(), 100);
   }
+
+  // ═══ SCROLL DETECTION ═══
+
+  setupScrollDetection() {
+    const container = document.getElementById('chat-messages');
+    if (!container) return;
+
+    container.addEventListener('scroll', () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      // If user scrolled up more than 100px from bottom, disable auto-scroll
+      this.autoScroll = distanceFromBottom < 100;
+      this.updateScrollFab();
+    });
+
+    const fab = document.getElementById('scroll-to-bottom');
+    if (fab) {
+      fab.addEventListener('click', () => {
+        this.autoScroll = true;
+        this.scrollToBottom(true);
+        this.updateScrollFab();
+      });
+    }
+  }
+
+  updateScrollFab() {
+    const fab = document.getElementById('scroll-to-bottom');
+    if (!fab) return;
+    if (this.autoScroll) {
+      fab.classList.remove('visible');
+    } else {
+      fab.classList.add('visible');
+    }
+  }
+
+  // ═══ SEND / STOP ═══
 
   sendMessage() {
     const input = document.getElementById('chat-input');
@@ -98,6 +160,9 @@ export class ChatView {
     this.currentStreamContent = '';
     this.currentThinkingContent = '';
     this.currentToolCalls = [];
+    this.toolStepCounter = 0;
+    this.streamStartTime = Date.now();
+    this.autoScroll = true;
     this.updateSendButton(true);
 
     // Add placeholder for assistant response
@@ -106,6 +171,15 @@ export class ChatView {
     // Send to server
     this.app.socket.emit('chat:message', { message });
   }
+
+  stopStreaming() {
+    if (!this.isStreaming) return;
+    this.app.socket.emit('chat:abort');
+    this.finishStreaming({ usage: null }, false);
+    Toast.info('Request stopped');
+  }
+
+  // ═══ SOCKET EVENTS ═══
 
   handleSocketEvent(event, data) {
     switch (event) {
@@ -120,13 +194,15 @@ export class ChatView {
         break;
 
       case 'chat:tool_start':
+        this.toolStepCounter++;
         this.currentToolCalls.push({
           name: data.name,
           args: data.args,
           status: 'running',
           result: null,
+          step: this.toolStepCounter,
         });
-        this.appendToolCallCard(data.name, data.args);
+        this.appendToolCallCard(data.name, data.args, this.toolStepCounter);
         break;
 
       case 'chat:tool_done':
@@ -164,12 +240,14 @@ export class ChatView {
     }
   }
 
+  // ═══ MESSAGE MANAGEMENT ═══
+
   addMessage(role, content, opts = {}) {
     const msg = { role, content, timestamp: new Date(), ...opts };
     this.messages.push(msg);
     if (this.rendered) {
       this.appendMessageDOM(msg);
-      this.scrollToBottom();
+      if (this.autoScroll) this.scrollToBottom();
     }
   }
 
@@ -177,19 +255,22 @@ export class ChatView {
     const messagesEl = document.getElementById('chat-messages');
     if (!messagesEl) return;
 
+    const idx = this.messages.length - 1;
     const div = document.createElement('div');
-    div.className = `message ${msg.role}`;
-    div.id = `msg-${this.messages.length - 1}`;
+    div.className = `message ${msg.role}${msg.streaming ? ' streaming' : ''}`;
+    div.id = `msg-${idx}`;
 
     const avatar = msg.role === 'user' ? '👤' : '🐉';
     const sender = msg.role === 'user' ? 'You' : 'Jarvis';
-    const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const time = msg.timestamp
+      ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '';
 
     let contentHtml = '';
     if (msg.streaming) {
-      contentHtml = '<span class="streaming-cursor"></span>';
+      contentHtml = this.getTypingIndicatorHTML();
     } else if (msg.role === 'assistant') {
-      contentHtml = renderMarkdown(msg.content);
+      contentHtml = this.processMarkdownWithCopyButtons(msg.content);
     } else {
       contentHtml = escapeHtml(msg.content);
     }
@@ -201,7 +282,7 @@ export class ChatView {
           <span class="message-sender">${sender}</span>
           <span>${time}</span>
         </div>
-        <div class="message-content" id="msg-content-${this.messages.length - 1}">
+        <div class="message-content" id="msg-content-${idx}">
           ${contentHtml}
         </div>
       </div>
@@ -210,119 +291,283 @@ export class ChatView {
     messagesEl.appendChild(div);
   }
 
+  // ═══ STREAMING UPDATES ═══
+
   updateStreamingMessage() {
     const idx = this.messages.length - 1;
     const contentEl = document.getElementById(`msg-content-${idx}`);
     if (!contentEl) return;
 
-    contentEl.innerHTML = renderMarkdown(this.currentStreamContent) + '<span class="streaming-cursor"></span>';
-    this.scrollToBottom();
+    // Remove typing indicator if still showing
+    const typingEl = contentEl.querySelector('.typing-indicator');
+    if (typingEl) typingEl.remove();
+
+    // Preserve thinking block and tool cards
+    const thinkingBlock = contentEl.querySelector('.thinking-block');
+    const toolCards = contentEl.querySelectorAll('.tool-call-card');
+
+    // Build the text content section
+    let textContainer = contentEl.querySelector('.stream-text');
+    if (!textContainer) {
+      textContainer = document.createElement('div');
+      textContainer.className = 'stream-text';
+      contentEl.appendChild(textContainer);
+    }
+    textContainer.innerHTML = renderMarkdown(this.currentStreamContent) + '<span class="streaming-cursor"></span>';
+
+    // Add copy buttons to code blocks
+    this.addCopyButtonsToCodeBlocks(textContainer);
+
+    if (this.autoScroll) this.scrollToBottom();
   }
+
+  // ═══ THINKING BLOCK ═══
 
   updateThinkingBlock() {
     const idx = this.messages.length - 1;
     const contentEl = document.getElementById(`msg-content-${idx}`);
     if (!contentEl) return;
 
+    // Remove typing indicator if still showing
+    const typingEl = contentEl.querySelector('.typing-indicator');
+    if (typingEl) typingEl.remove();
+
     let thinkingBlock = contentEl.querySelector('.thinking-block');
     if (!thinkingBlock) {
+      // Start thinking timer
+      this.thinkingStartTime = Date.now();
+      this.startThinkingTimer();
+
       thinkingBlock = document.createElement('div');
-      thinkingBlock.className = 'thinking-block';
+      thinkingBlock.className = 'thinking-block active';
       thinkingBlock.innerHTML = `
-        <div class="thinking-header" onclick="this.querySelector('.chevron').classList.toggle('open'); this.nextElementSibling.classList.toggle('expanded');">
-          <span class="chevron">▶</span>
-          <span>🧠 Reasoning...</span>
+        <div class="thinking-header">
+          <span class="thinking-chevron open">▶</span>
+          <div class="thinking-label">
+            <span class="thinking-label-icon">🧠</span>
+            <span class="thinking-label-text">Reasoning...</span>
+          </div>
+          <span class="thinking-pulse"></span>
+          <span class="thinking-elapsed" id="thinking-elapsed">0s</span>
         </div>
-        <div class="thinking-content"></div>
+        <div class="thinking-content expanded"></div>
       `;
       contentEl.insertBefore(thinkingBlock, contentEl.firstChild);
+
+      // Setup toggle
+      const header = thinkingBlock.querySelector('.thinking-header');
+      header.addEventListener('click', () => {
+        const chevron = header.querySelector('.thinking-chevron');
+        const content = thinkingBlock.querySelector('.thinking-content');
+        chevron.classList.toggle('open');
+        content.classList.toggle('expanded');
+      });
     }
 
     const thinkingContent = thinkingBlock.querySelector('.thinking-content');
     thinkingContent.textContent = this.currentThinkingContent;
+
+    // Auto-scroll the thinking content to bottom
+    thinkingContent.scrollTop = thinkingContent.scrollHeight;
+
+    if (this.autoScroll) this.scrollToBottom();
   }
 
-  appendToolCallCard(name, args) {
+  startThinkingTimer() {
+    this.stopThinkingTimer();
+    this.thinkingTimerInterval = setInterval(() => {
+      const el = document.getElementById('thinking-elapsed');
+      if (el && this.thinkingStartTime) {
+        const elapsed = Math.floor((Date.now() - this.thinkingStartTime) / 1000);
+        if (elapsed < 60) {
+          el.textContent = `${elapsed}s`;
+        } else {
+          const mins = Math.floor(elapsed / 60);
+          const secs = elapsed % 60;
+          el.textContent = `${mins}m ${secs}s`;
+        }
+      }
+    }, 1000);
+  }
+
+  stopThinkingTimer() {
+    if (this.thinkingTimerInterval) {
+      clearInterval(this.thinkingTimerInterval);
+      this.thinkingTimerInterval = null;
+    }
+  }
+
+  // ═══ TOOL CALL CARDS ═══
+
+  appendToolCallCard(name, args, step) {
     const idx = this.messages.length - 1;
     const contentEl = document.getElementById(`msg-content-${idx}`);
     if (!contentEl) return;
 
-    // Remove streaming cursor temporarily
-    const cursor = contentEl.querySelector('.streaming-cursor');
+    // Remove typing indicator if still showing
+    const typingEl = contentEl.querySelector('.typing-indicator');
+    if (typingEl) typingEl.remove();
 
+    const cardId = `tool-${step}-${Date.now()}`;
     const card = document.createElement('div');
-    card.className = 'tool-call-card';
-    card.id = `tool-${name}-${Date.now()}`;
+    card.className = 'tool-call-card running';
+    card.id = cardId;
+    card.dataset.toolName = name;
+    card.dataset.step = step;
 
     const argsStr = args ? JSON.stringify(args, null, 2) : '{}';
 
     card.innerHTML = `
-      <div class="tool-call-header" onclick="this.nextElementSibling.classList.toggle('expanded')">
+      <div class="tool-call-header">
+        <div class="tool-step-badge running">${step}</div>
         <span class="tool-call-icon">🔧</span>
-        <span class="tool-call-name">${name}</span>
-        <span class="tool-call-status running" id="${card.id}-status">⏳ Running...</span>
+        <span class="tool-call-name">${escapeHtml(name)}</span>
+        <span class="tool-call-status running" id="${cardId}-status">
+          <span class="tool-spinner"></span>
+          Running
+        </span>
+        <span class="tool-call-expand-chevron">▶</span>
       </div>
       <div class="tool-call-body">
         <div class="tool-call-section">
           <div class="tool-call-section-label">Arguments</div>
           <div class="tool-call-json">${escapeHtml(argsStr)}</div>
         </div>
-        <div class="tool-call-section" id="${card.id}-result" style="display:none;">
+        <div class="tool-call-section" id="${cardId}-result-section" style="display:none;">
           <div class="tool-call-section-label">Result</div>
-          <div class="tool-call-json" id="${card.id}-result-json"></div>
+          <div class="tool-call-json" id="${cardId}-result-json"></div>
         </div>
       </div>
     `;
 
-    contentEl.insertBefore(card, cursor);
-    this.scrollToBottom();
+    // Insert before the stream-text container if it exists, otherwise append
+    const streamText = contentEl.querySelector('.stream-text');
+    if (streamText) {
+      contentEl.insertBefore(card, streamText);
+    } else {
+      contentEl.appendChild(card);
+    }
+
+    // Setup toggle
+    const header = card.querySelector('.tool-call-header');
+    header.addEventListener('click', () => {
+      const chevron = card.querySelector('.tool-call-expand-chevron');
+      const body = card.querySelector('.tool-call-body');
+      chevron.classList.toggle('open');
+      body.classList.toggle('expanded');
+    });
+
+    if (this.autoScroll) this.scrollToBottom();
   }
 
   updateToolCallStatus(name, result) {
     // Find the latest running tool card for this name
-    const cards = document.querySelectorAll('.tool-call-card');
+    const cards = document.querySelectorAll('.tool-call-card.running');
     for (let i = cards.length - 1; i >= 0; i--) {
       const card = cards[i];
-      const statusEl = card.querySelector('.tool-call-status.running');
-      if (statusEl && card.querySelector('.tool-call-name')?.textContent === name) {
+      if (card.dataset.toolName === name) {
         const success = result?.success !== false;
-        statusEl.className = `tool-call-status ${success ? 'success' : 'error'}`;
-        statusEl.textContent = success ? '✅ Success' : '❌ Failed';
+        const statusClass = success ? 'success' : 'error';
+
+        // Update card class
+        card.classList.remove('running');
+        card.classList.add(statusClass);
+
+        // Update badge
+        const badge = card.querySelector('.tool-step-badge');
+        if (badge) {
+          badge.classList.remove('running');
+          badge.classList.add(statusClass);
+        }
+
+        // Update status text
+        const statusEl = card.querySelector('.tool-call-status');
+        if (statusEl) {
+          statusEl.className = `tool-call-status ${statusClass}`;
+          statusEl.innerHTML = success ? '✅ Done' : '❌ Failed';
+        }
 
         // Show result
-        const resultSection = card.querySelector(`[id$="-result"]`);
-        const resultJson = card.querySelector(`[id$="-result-json"]`);
+        const cardId = card.id;
+        const resultSection = document.getElementById(`${cardId}-result-section`);
+        const resultJson = document.getElementById(`${cardId}-result-json`);
         if (resultSection && resultJson) {
           resultSection.style.display = 'block';
           const resultStr = JSON.stringify(result, null, 2);
-          resultJson.textContent = resultStr.length > 2000 ? resultStr.slice(0, 2000) + '\n... [truncated]' : resultStr;
+          resultJson.textContent = resultStr.length > 2000
+            ? resultStr.slice(0, 2000) + '\n... [truncated]'
+            : resultStr;
         }
         break;
       }
     }
-    this.scrollToBottom();
+    if (this.autoScroll) this.scrollToBottom();
   }
+
+  // ═══ FINISH STREAMING ═══
 
   finishStreaming(data, isError = false) {
     this.isStreaming = false;
+    this.stopThinkingTimer();
     this.updateSendButton(false);
 
     const idx = this.messages.length - 1;
+    const msgEl = document.getElementById(`msg-${idx}`);
     const contentEl = document.getElementById(`msg-content-${idx}`);
+
+    // Remove streaming class from message
+    if (msgEl) msgEl.classList.remove('streaming');
+
     if (contentEl) {
+      // Remove typing indicator
+      const typingEl = contentEl.querySelector('.typing-indicator');
+      if (typingEl) typingEl.remove();
+
       // Remove streaming cursor
       const cursor = contentEl.querySelector('.streaming-cursor');
       if (cursor) cursor.remove();
 
       // Finalize thinking block
-      const thinkingHeader = contentEl.querySelector('.thinking-header');
-      if (thinkingHeader) {
-        const label = thinkingHeader.querySelector('span:last-child');
-        if (label) label.textContent = '🧠 Reasoning (click to expand)';
+      const thinkingBlock = contentEl.querySelector('.thinking-block');
+      if (thinkingBlock) {
+        thinkingBlock.classList.remove('active');
+
+        // Remove pulse dot
+        const pulse = thinkingBlock.querySelector('.thinking-pulse');
+        if (pulse) pulse.remove();
+
+        // Update label
+        const labelText = thinkingBlock.querySelector('.thinking-label-text');
+        if (labelText) {
+          const elapsed = this.thinkingStartTime
+            ? Math.floor((Date.now() - this.thinkingStartTime) / 1000)
+            : 0;
+          const timeStr = elapsed < 60
+            ? `${elapsed}s`
+            : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
+          labelText.textContent = `Reasoning complete (${timeStr})`;
+        }
+
+        // Collapse thinking content, but keep it expandable
+        const chevron = thinkingBlock.querySelector('.thinking-chevron');
+        const thinkingContent = thinkingBlock.querySelector('.thinking-content');
+        if (chevron) chevron.classList.remove('open');
+        if (thinkingContent) thinkingContent.classList.remove('expanded');
+
+        // Remove elapsed timer display
+        const elapsedEl = thinkingBlock.querySelector('.thinking-elapsed');
+        if (elapsedEl) elapsedEl.remove();
       }
 
+      // Show error if present
       if (isError && data.error) {
-        contentEl.innerHTML += `<div style="color:var(--rose);margin-top:var(--sp-2);font-size:0.85rem;">⚠️ ${escapeHtml(data.error)}</div>`;
+        const errorEl = document.createElement('div');
+        errorEl.className = 'chat-error-inline';
+        errorEl.innerHTML = `
+          <span class="error-icon">⚠️</span>
+          <span>${escapeHtml(data.error)}</span>
+        `;
+        contentEl.appendChild(errorEl);
       }
     }
 
@@ -334,18 +579,26 @@ export class ChatView {
 
     // Update token info
     if (data.usage) this.updateTokenInfo(data.usage);
+
+    this.thinkingStartTime = null;
   }
 
-  updateSendButton(loading) {
+  // ═══ UI HELPERS ═══
+
+  updateSendButton(streaming) {
     const btn = document.getElementById('chat-send');
     const icon = document.getElementById('send-icon');
     if (!btn || !icon) return;
 
-    if (loading) {
-      btn.disabled = true;
-      icon.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-color:rgba(0,0,0,0.2);border-top-color:var(--bg-deep);"></div>';
-    } else {
+    if (streaming) {
+      btn.classList.add('stop-mode');
       btn.disabled = false;
+      btn.title = 'Stop generation';
+      icon.innerHTML = '<div class="stop-icon"></div>';
+    } else {
+      btn.classList.remove('stop-mode');
+      btn.disabled = false;
+      btn.title = 'Send message';
       icon.textContent = '➤';
     }
   }
@@ -357,7 +610,8 @@ export class ChatView {
     }
   }
 
-  scrollToBottom() {
+  scrollToBottom(force = false) {
+    if (!this.autoScroll && !force) return;
     const container = document.getElementById('chat-messages');
     if (container) {
       requestAnimationFrame(() => {
@@ -365,6 +619,59 @@ export class ChatView {
       });
     }
   }
+
+  getTypingIndicatorHTML() {
+    return `
+      <div class="typing-indicator">
+        <div class="typing-dots">
+          <span class="typing-dot"></span>
+          <span class="typing-dot"></span>
+          <span class="typing-dot"></span>
+        </div>
+        <span class="typing-indicator-label">Thinking...</span>
+      </div>
+    `;
+  }
+
+  processMarkdownWithCopyButtons(text) {
+    if (!text) return '';
+    const html = renderMarkdown(text);
+    // We'll add copy buttons via DOM manipulation after inserting
+    return html;
+  }
+
+  addCopyButtonsToCodeBlocks(container) {
+    if (!container) return;
+    const preBlocks = container.querySelectorAll('pre');
+    preBlocks.forEach(pre => {
+      // Don't add if already has one
+      if (pre.querySelector('.code-copy-btn')) return;
+
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'code-copy-btn';
+      copyBtn.textContent = '📋';
+      copyBtn.title = 'Copy code';
+      copyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const code = pre.querySelector('code');
+        const text = code ? code.textContent : pre.textContent;
+        navigator.clipboard.writeText(text).then(() => {
+          copyBtn.textContent = '✓';
+          copyBtn.classList.add('copied');
+          setTimeout(() => {
+            copyBtn.textContent = '📋';
+            copyBtn.classList.remove('copied');
+          }, 2000);
+        }).catch(() => {
+          Toast.error('Failed to copy');
+        });
+      });
+      pre.style.position = 'relative';
+      pre.appendChild(copyBtn);
+    });
+  }
+
+  // ═══ SLASH COMMANDS ═══
 
   handleSlashCommands(value) {
     const dropdown = document.getElementById('slash-dropdown');
@@ -406,6 +713,8 @@ export class ChatView {
     dropdown.classList.add('hidden');
   }
 
+  // ═══ WELCOME SCREEN ═══
+
   getWelcomeHTML() {
     return `
       <div class="chat-welcome">
@@ -416,20 +725,36 @@ export class ChatView {
           generate reports, and help you with security research — all powered by 150+ tools and MITRE ATT&CK mapping.
         </p>
         <div class="welcome-suggestions">
-          <div class="suggestion-chip" onclick="document.getElementById('chat-input').value='Scan example.com for open ports and vulnerabilities'; document.getElementById('chat-input').focus();">
+          <div class="suggestion-chip" data-suggestion="Scan example.com for open ports and vulnerabilities">
             🔍 Scan a target
           </div>
-          <div class="suggestion-chip" onclick="document.getElementById('chat-input').value='Search for recent critical CVEs'; document.getElementById('chat-input').focus();">
+          <div class="suggestion-chip" data-suggestion="Search for recent critical CVEs">
             🛡️ Search CVEs
           </div>
-          <div class="suggestion-chip" onclick="document.getElementById('chat-input').value='What tools do you have for web application testing?'; document.getElementById('chat-input').focus();">
+          <div class="suggestion-chip" data-suggestion="What tools do you have for web application testing?">
             🔧 List web tools
           </div>
-          <div class="suggestion-chip" onclick="document.getElementById('chat-input').value='Generate a recon strategy for a bug bounty target'; document.getElementById('chat-input').focus();">
+          <div class="suggestion-chip" data-suggestion="Generate a recon strategy for a bug bounty target">
             🎯 Build a strategy
           </div>
         </div>
       </div>
     `;
+  }
+
+  // Called after render to attach suggestion chip listeners (called from render)
+  setupSuggestionChips() {
+    document.querySelectorAll('.suggestion-chip[data-suggestion]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const suggestion = chip.dataset.suggestion;
+        const input = document.getElementById('chat-input');
+        if (input) {
+          input.value = suggestion;
+          input.focus();
+          // Actually send the message
+          this.sendMessage();
+        }
+      });
+    });
   }
 }

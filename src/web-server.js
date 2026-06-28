@@ -352,6 +352,7 @@ export async function startWebServer(options = {}) {
 
   io.on('connection', (socket) => {
     console.log(`[Web] Client connected: ${socket.id}`);
+    let currentAbortController = null;
 
     // Send initial state
     socket.emit('chat:ready', {
@@ -365,11 +366,16 @@ export async function startWebServer(options = {}) {
       const { message } = data;
       if (!message || !message.trim()) return;
 
+      // Create an abort controller for this message
+      currentAbortController = new AbortController();
+      const signal = currentAbortController.signal;
+
       try {
         await agent.processMessage(
           message,
           // onUpdate — stream text/thinking to client
           async (update) => {
+            if (signal.aborted) return;
             if (update.type === 'text') {
               socket.emit('chat:text', { content: update.content });
             } else if (update.type === 'thinking') {
@@ -378,6 +384,7 @@ export async function startWebServer(options = {}) {
           },
           // onTool — stream tool events to client
           async (toolEvent) => {
+            if (signal.aborted) return;
             if (toolEvent.type === 'start') {
               socket.emit('chat:tool_start', { name: toolEvent.name, args: toolEvent.args });
             } else if (toolEvent.type === 'done') {
@@ -391,9 +398,24 @@ export async function startWebServer(options = {}) {
         );
 
         // Turn complete
-        socket.emit('chat:done', { usage: agent.getUsage() });
+        if (!signal.aborted) {
+          socket.emit('chat:done', { usage: agent.getUsage() });
+        }
       } catch (error) {
-        socket.emit('chat:error', { error: error.message });
+        if (!signal.aborted) {
+          socket.emit('chat:error', { error: error.message });
+        }
+      } finally {
+        currentAbortController = null;
+      }
+    });
+
+    // Abort current generation
+    socket.on('chat:abort', () => {
+      if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+        socket.emit('chat:done', { usage: agent.getUsage(), aborted: true });
       }
     });
 
@@ -410,6 +432,10 @@ export async function startWebServer(options = {}) {
     });
 
     socket.on('disconnect', () => {
+      if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+      }
       console.log(`[Web] Client disconnected: ${socket.id}`);
     });
   });
