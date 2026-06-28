@@ -22,6 +22,7 @@
    - [Auto-Learner](#9-auto-learner--threat-intelligence)
    - [Persistent Memory (SQLite)](#10-persistent-memory--sqlite)
    - [Telegram Bot Interface](#11-telegram-bot-interface)
+   - [Web UI Command Center](#12-web-ui-command-center)
 4. [Data Flow Diagrams](#-data-flow-diagrams)
 5. [Anti-Loop Intelligence](#-anti-loop-intelligence)
 6. [Semantic Execution Cache](#-semantic-execution-cache)
@@ -38,12 +39,12 @@
 Jarvis Cyber is built on a **modular, event-driven architecture** with five core layers:
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        INTERFACE LAYER                               │
-│  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌────────────────────┐  │
-│  │   CLI    │  │ Telegram  │  │  Daemon  │  │  MCP Server        │  │
-│  │  (REPL)  │  │   Bot     │  │  (24/7)  │  │  (stdio / SSE)     │  │
-│  └────┬─────┘  └─────┬─────┘  └────┬─────┘  └─────────┬──────────┘  │
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                            INTERFACE LAYER                                    │
+│  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │
+│  │   CLI    │  │ Telegram  │  │  Daemon  │  │  Web UI  │  │  MCP Server  │  │
+│  │  (REPL)  │  │   Bot     │  │  (24/7)  │  │ (Express)│  │ (stdio/SSE)  │  │
+│  └────┬─────┘  └─────┬─────┘  └────┬─────┘  └────┬─────┘  └──────┬───────┘  │
 │       │              │             │                   │             │
 ├───────┴──────────────┴─────────────┴───────────────────┴─────────────┤
 │                        INTELLIGENCE LAYER                            │
@@ -84,6 +85,7 @@ graph TB
     subgraph "User Interfaces"
         CLI["🖥️ CLI REPL<br/>(repl.js)"]
         TG["📱 Telegram Bot<br/>(telegram-bot.js)"]
+        WEB["🌐 Web UI<br/>(web-server.js)"]
         MCP["🔌 MCP Server<br/>(mcp-server.js)"]
         DAEMON["⚙️ Daemon<br/>(daemon.js)"]
     end
@@ -120,6 +122,7 @@ graph TB
 
     CLI --> AGENT
     TG --> AGENT
+    WEB --> AGENT
     DAEMON --> AGENT
     DAEMON --> LEARNER
     MCP --> KALI
@@ -150,7 +153,7 @@ graph TB
 
 ### 1. Agent Loop — OODA Cycle
 
-**File**: `src/agent.js` (556 lines)
+**File**: `src/agent.js` (568 lines)
 
 The Agent class implements an **OODA (Observe-Orient-Decide-Act)** loop that processes user messages through iterative LLM reasoning and tool execution cycles.
 
@@ -217,7 +220,7 @@ flowchart TD
 
 ### 2. API Layer — NVIDIA NIM Integration
 
-**File**: `src/api.js` (280 lines)
+**File**: `src/api.js` (294 lines)
 
 Handles all communication with the NVIDIA NIM API using **Server-Sent Events (SSE)** for real-time streaming.
 
@@ -251,7 +254,7 @@ sequenceDiagram
 
 | Feature | Implementation |
 |---------|---------------|
-| **Model** | `z-ai/glm5` (NVIDIA NIM hosted) — supports native thinking tokens |
+| **Model** | `z-ai/glm-5.1` (NVIDIA NIM hosted) — supports native chain-of-thought reasoning tokens |
 | **Retry Logic** | Exponential backoff for 429 (rate limit): `3s × attempt`. Up to 10 retries for network failures |
 | **Timeouts** | 30-minute hard timeout for chat completions, 5-second timeout for health checks |
 | **JSON Sanitization** | Broken JSON from interrupted streams is sanitized to `{"_error": "..."}` to prevent 400 errors |
@@ -619,9 +622,9 @@ flowchart LR
 
 ### 10. Persistent Memory — SQLite
 
-**File**: `src/memory.js` (900+ lines)
+**File**: `src/memory.js` (796 lines)
 
-All persistent data is stored in a local SQLite database (`jarvis-memory.db`) using `better-sqlite3` for synchronous, high-performance access.
+All persistent data is stored in a local SQLite database (`jarvis-memory.db`) using `better-sqlite3` for synchronous, high-performance access. The database contains **15+ tables** covering knowledge, targets, chat sessions, conversations, cache, operations, scan results, threat intel, FOFA results, exploit DB, attack logs, strategies, and more.
 
 #### Database Schema
 
@@ -647,20 +650,30 @@ erDiagram
         datetime created_at
     }
 
+    CHAT_SESSIONS {
+        text id PK
+        text title
+        datetime created_at
+        datetime updated_at
+        integer message_count
+    }
+
     CONVERSATIONS {
         integer id PK
-        text session_id
+        text session_id FK
         text role
         text content
         text tool_calls
         datetime created_at
     }
 
+    CHAT_SESSIONS ||--o{ CONVERSATIONS : contains
+
     CACHE {
-        text key PK
-        text value
-        text tool
-        datetime expires_at
+        text cache_key PK
+        text result
+        text tool_name
+        integer ttl_hours
         datetime created_at
     }
 
@@ -679,23 +692,69 @@ erDiagram
 
     SCAN_RESULTS {
         integer id PK
+        text scan_type
         text target
-        text tool
-        text result_type
-        text data
+        text scanner
+        text ports
+        text services
+        text vulns
+        text os_detected
+        text raw_output
+        text severity
         datetime created_at
     }
 
     THREAT_INTEL {
         integer id PK
-        text type
-        text value
-        text source
+        text intel_type
+        text identifier
+        text title
+        text description
         text severity
-        text tags
-        datetime first_seen
-        datetime last_seen
+        real cvss_score
+        text affected_products
+        text references_json
+        text source
+        datetime published_at
+        datetime fetched_at
     }
+
+    OPERATIONS {
+        integer id PK
+        text op_type
+        text target
+        text tool_name
+        text args
+        text status
+        text result_summary
+        datetime started_at
+        datetime completed_at
+    }
+
+    EXPLOIT_DB {
+        integer id PK
+        text exploit_id
+        text title
+        text platform
+        text exploit_type
+        text cve_ids
+        text source
+        datetime published_at
+    }
+
+    ATTACK_LOGS {
+        integer id PK
+        integer operation_id FK
+        text phase
+        text action
+        text target
+        text command
+        text result
+        integer success
+        datetime timestamp
+    }
+
+    OPERATIONS ||--o{ ATTACK_LOGS : tracks
 ```
 
 #### Key Operations
@@ -753,6 +812,130 @@ flowchart TD
 - **Inline keyboards**: Quick-access buttons for common actions
 - **Photo/document support**: Receive and process files via Telegram
 - **Auto-sudo**: All `sudo` commands rewritten to `sudo -n` to prevent password prompts
+
+---
+
+### 12. Web UI Command Center
+
+**File**: `src/web-server.js` (653 lines) + `public/` (frontend)
+
+The Web UI is a full-featured browser-based command center that provides real-time interaction with the Jarvis agent via WebSocket, along with comprehensive system monitoring and management.
+
+#### Architecture
+
+```mermaid
+graph TB
+    subgraph "Browser Client"
+        SPA["🌐 SPA Frontend<br/>(index.html + app.js)"]
+        CHAT_VIEW["💬 Chat View<br/>Sessions, Thinking, Tools"]
+        DASH["📊 Dashboard"]
+        TOOLS_VIEW["🔧 Tools Browser"]
+        INTEL["🛡️ Threat Intel"]
+        REPORTS["📝 Reports"]
+        SETTINGS["⚙️ Settings"]
+    end
+
+    subgraph "Express + Socket.io Server"
+        REST["REST API<br/>(25+ endpoints)"]
+        WS["WebSocket<br/>(Socket.io)"]
+    end
+
+    subgraph "Backend"
+        AGENT["🧠 Agent<br/>(Shared Instance)"]
+        DB["💾 SQLite<br/>(Memory)"]
+        TB["🌉 Tool Bridge"]
+        RE["📊 Report Engine"]
+    end
+
+    SPA --> REST
+    SPA --> WS
+    CHAT_VIEW --> WS
+
+    REST --> DB
+    REST --> TB
+    REST --> RE
+    WS --> AGENT
+    AGENT --> DB
+```
+
+#### Frontend Views
+
+| View | File | Features |
+|------|------|----------|
+| **Dashboard** | `views/dashboard.js` | System health, API status, active services, DB stats |
+| **Agent Chat** | `views/chat.js` (1160 lines) | Real-time streaming, thinking visualization, tool cards, session sidebar, search, slash commands |
+| **Tools** | `views/tools.js` | Browse 150+ Kali + 35 API tools, install status, category filter |
+| **Threat Intel** | `views/intel.js` | CVE browser, exploit search, intel counts |
+| **Reports** | `views/reports.js` | Report list, download, view |
+| **Settings** | `views/settings.js` | Model, temperature, topP, maxTokens configuration |
+
+#### WebSocket Chat Flow
+
+```mermaid
+sequenceDiagram
+    actor User as Browser
+    participant WS as Socket.io Server
+    participant Agent as Agent Instance
+    participant DB as SQLite Memory
+    participant LLM as NVIDIA NIM API
+
+    User->>WS: chat:message {message, sessionId}
+    WS->>DB: Auto-create or load session
+    WS->>DB: Store user message
+    WS->>Agent: processMessage(message, onUpdate, onTool, signal)
+
+    Agent->>LLM: streamChat(messages, tools)
+
+    loop Streaming Response
+        LLM-->>Agent: thinking tokens
+        Agent-->>WS: chat:thinking {content}
+        WS-->>User: Display thinking animation
+
+        LLM-->>Agent: text tokens
+        Agent-->>WS: chat:text {content}
+        WS-->>User: Stream text to chat bubble
+
+        LLM-->>Agent: tool_call
+        Agent->>Agent: Execute tool
+        Agent-->>WS: chat:tool_start {name, args}
+        WS-->>User: Show tool card (running)
+        Agent-->>WS: chat:tool_done {name, args, result}
+        WS-->>User: Update tool card (complete)
+    end
+
+    Agent-->>WS: Turn complete
+    WS->>DB: Store assistant response
+    WS-->>User: chat:done {usage}
+```
+
+#### Chat Session Management
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  CHAT SESSION LIFECYCLE                      │
+├─────────────────────────────────────────────────────────────┤
+│  1. User sends first message → Auto-create session          │
+│  2. Title = first 60 chars of first message                 │
+│  3. All messages stored in conversations table (FK)         │
+│  4. Session sidebar shows history (sorted by updated_at)    │
+│  5. Click session → Load messages + restore agent history   │
+│  6. Search across session titles and message content        │
+│  7. Delete session → Cascade delete all messages            │
+│  8. Abort → AbortController cancels in-flight generation    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### REST API Summary
+
+| Category | Endpoints | Description |
+|----------|-----------|-------------|
+| **System** | `/api/health`, `/api/stats`, `/api/config` | Health, DB stats, configuration |
+| **Tools** | `/api/tools`, `/api/kali-tools`, `/api/frameworks` | Tool definitions, install status |
+| **Intelligence** | `/api/threat-intel`, `/api/exploits/search`, `/api/knowledge` | Threat data queries |
+| **Operations** | `/api/scan-results`, `/api/operations`, `/api/targets`, `/api/loot` | Scan data, ops log |
+| **Chat** | `/api/chat/sessions` (CRUD), `/api/chat/search` | Session management |
+| **Reports** | `/api/report`, `/api/reports-list`, `/api/reports/download` | Report generation |
+| **Monitoring** | `/api/services`, `/api/usage-stats`, `/api/execution-log` | Service discovery, telemetry |
 
 ---
 
@@ -1053,7 +1236,7 @@ Tool outputs are truncated to prevent token bloat and potential information leak
 NVIDIA_API_KEY=your-nvidia-nim-api-key
 
 # ═══ AI Model ═══
-AI_MODEL=z-ai/glm5                    # Default model
+AI_MODEL=z-ai/glm-5.1                 # Default model
 AI_BASE_URL=https://integrate.api.nvidia.com/v1  # API endpoint
 MAX_TOKENS=16384                       # Max output tokens
 TEMPERATURE=0.6                        # Sampling temperature
@@ -1184,6 +1367,8 @@ Priority: CLI args > env vars > defaults
 |--------|---------|-------------|
 | `start` | `node cli.js` | Start interactive CLI |
 | `dev` | `node cli.js --verbose` | CLI with verbose logging |
+| `web` | `node cli.js --web` | Web UI Command Center (port 3000) |
+| `web:dev` | `node cli.js --web --port 3000` | Web UI on custom port |
 | `telegram` | `node cli.js --telegram` | Telegram bot mode |
 | `daemon` | `node cli.js --daemon` | Background daemon |
 | `learn` | `node cli.js --learn` | Single learning cycle |
@@ -1191,6 +1376,8 @@ Priority: CLI args > env vars > defaults
 | `mcp:sse` | `node cli.js --mcp --port 8888` | MCP server (SSE) |
 | `install-service` | `./install-service.sh` | Install systemd service |
 | `test` | `node tests/test-all.js` | Run test suite |
+
+> **CLI shorthand**: `jarvis -ui` or `jarvis --ui` is an alias for `jarvis --web` for quick access to the Web UI.
 
 ---
 
@@ -1206,7 +1393,8 @@ Priority: CLI args > env vars > defaults
 | `diff` | ^5.2.0 | File diff for edit_file tool |
 | `dotenv` | ^17.3.1 | Environment variable loading |
 | `duck-duck-scrape` | ^2.2.7 | DuckDuckGo search scraping |
-| `express` | ^5.2.1 | SSE transport HTTP server |
+| `express` | ^5.2.1 | Web UI server + SSE transport HTTP server |
+| `socket.io` | ^4.8.3 | Real-time WebSocket communication for Web UI |
 | `glob` | ^10.3.10 | File pattern matching |
 | `marked` + `marked-terminal` | ^12.0 / ^7.0 | Markdown rendering in terminal |
 | `node-cron` | ^3.0.3 | Cron scheduling for daemon/auto-learner |
@@ -1219,6 +1407,6 @@ Priority: CLI args > env vars > defaults
 ---
 
 <p align="center">
-  <strong>🐉 Jarvis Cyber v4.0 — Architecture Documentation</strong><br>
+  <strong>🐉 Jarvis Cyber v4.0 — Architecture & Technical Deep-Dive</strong><br>
   <em>Built by <a href="https://github.com/ABINAYAN-HUB">ABINAYAN</a></em>
 </p>

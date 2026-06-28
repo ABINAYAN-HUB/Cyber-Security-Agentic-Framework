@@ -20,6 +20,7 @@ if (args.includes('--help') || args.includes('-h')) {
 
   Modes:
     (default)               Interactive CLI REPL
+    --ui, -ui               Launch Web UI (alias for --web)
     --telegram              Launch Telegram bot mode
     --daemon                Run as background daemon with heartbeat, auto-learning & Telegram
     --learn                 Run a single auto-learning cycle and exit
@@ -152,7 +153,7 @@ else if (args.includes('--mcp')) {
 }
 
 // ═══ MODE: WEB UI (v4.0) ═══
-else if (args.includes('--web')) {
+else if (args.includes('--web') || args.includes('--ui') || args.includes('-ui')) {
   import('./src/web-server.js').then(async ({ startWebServer }) => {
     try {
       const portIdx = args.indexOf('--port');

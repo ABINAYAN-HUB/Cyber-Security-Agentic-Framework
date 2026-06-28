@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Autonomous AI Cybersecurity Agent — Framework-Driven Offensive Security</strong><br>
-  150+ Kali Tools • MCP Server • MITRE ATT&CK • Dynamic Strategy Engine • Auto-Installer • Report Engine • Telegram Bot
+  150+ Kali Tools • Web UI Command Center • MCP Server • MITRE ATT&CK • Dynamic Strategy Engine • Auto-Installer • Report Engine • Telegram Bot
 </p>
 
 <p align="center">
@@ -10,6 +10,7 @@
   <img src="https://img.shields.io/badge/kali_tools-150+-brightgreen?style=for-the-badge" alt="Tools">
   <img src="https://img.shields.io/badge/node-%3E%3D18-blue?style=for-the-badge" alt="Node">
   <img src="https://img.shields.io/badge/platform-Kali%20Linux-black?style=for-the-badge" alt="Platform">
+  <img src="https://img.shields.io/badge/Web_UI-Dashboard-orange?style=for-the-badge" alt="Web UI">
   <img src="https://img.shields.io/badge/MCP_Server-Supported-cyan?style=for-the-badge" alt="MCP">
   <img src="https://img.shields.io/badge/MITRE_ATT%26CK-Mapped-purple?style=for-the-badge" alt="MITRE">
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=for-the-badge" alt="License">
@@ -29,10 +30,12 @@ Jarvis Cyber is a **fully autonomous AI cybersecurity agent** powered by NVIDIA 
 
 | Feature | Description |
 |---------|-------------|
+| 🌐 **Web UI Command Center** | Full-featured browser dashboard with real-time AI chat, session history, tool browser, threat intel viewer, report manager, and settings. Launch with `jarvis -ui` and open `http://localhost:3000`. |
 | 🔌 **MCP Server** | Expose all 150+ Kali tools as Model Context Protocol tools via **stdio** or **SSE** transport. Any MCP-compatible client (Claude Desktop, Cursor, VS Code) can use Jarvis as a cybersecurity backend. |
 | 📊 **Dynamic Report Engine** | Auto-generates structured pentest reports from tool execution history — executive summary, Kill Chain methodology, findings, MITRE mapping, timeline, and recommendations. |
 | 🌉 **Tool Bridge** | Runtime service discovery that auto-detects running proxies (Burp Suite, ZAP, mitmproxy) and tool services (Metasploit RPC, Interactsh). Routes traffic through active proxies automatically. |
 | 🤖 **Subagent System** | Spawn background AI agents for parallelizable tasks. Delegate time-consuming work (recon, brute-force, scraping) and check results later. |
+| 💬 **Chat Sessions** | Persistent conversation history stored in SQLite. Switch between sessions, search past conversations, and resume where you left off — both in CLI and Web UI. |
 | 📝 **Skills Manager** | Load custom user-created skills from a `skills/` directory with YAML frontmatter and bundled scripts. |
 | 🎯 **Listener Manager** | Persistent TCP listener for catching reverse shells, with dynamic port conflict detection and interactive shell command execution. |
 
@@ -43,11 +46,13 @@ Jarvis Cyber is a **fully autonomous AI cybersecurity agent** powered by NVIDIA 
 - **🧠 Dynamic Strategy Engine** — Generates custom attack plans using MITRE ATT&CK technique mapping and Cyber Kill Chain phase progression. Every strategy is unique to the target.
 - **🔧 150+ Kali Tool Registry** — Auto-detects installed tools across 12 categories (recon, exploitation, wireless, post-exploitation, etc.) with full usage examples the AI uses to construct commands dynamically.
 - **📦 Self-Healing Tool Installer** — Missing a tool? Jarvis auto-installs it from `apt`, `pip`, `go`, `npm`, `gem`, `cargo`, GitHub, or direct URL. Crashes from missing dependencies trigger automatic self-repair.
+- **🌐 Web UI Dashboard** — Real-time browser-based command center with AI chat, tool browser, threat intel viewer, report management, and system settings.
 - **🤖 Telegram Bot** — Full remote control from your phone. Run pentests, execute commands, and receive results — all through Telegram.
-- **📡 24/7 Auto-Learning** — Continuously fetches CVEs, exploits, IOCs, malware hashes, and security news from global threat feeds.
-- **💾 Persistent Memory** — SQLite database stores knowledge, scan results, strategies, attack logs, and learned intelligence across sessions.
-- **🔄 Anti-Loop Intelligence** — Detects repeated failures, prevents infinite tool-call loops, and adapts strategy when attacks are blocked.
-- **⚡ Semantic Execution Cache** — Caches recon results to avoid redundant scans, with configurable TTL per tool type.
+- **📡 24/7 Auto-Learning** — Continuously fetches CVEs, exploits, IOCs, malware hashes, and security news from global threat feeds (NVD, CISA, Exploit-DB, abuse.ch, GitHub Advisories).
+- **💾 Persistent Memory** — SQLite database with 15+ tables stores knowledge, scan results, strategies, attack logs, chat sessions, threat intel, and learned intelligence across sessions.
+- **🔄 Anti-Loop Intelligence** — Detects repeated failures, prevents infinite tool-call loops, and adapts strategy when attacks are blocked (3-level protection system).
+- **⚡ Semantic Execution Cache** — Caches recon results to avoid redundant scans, with configurable TTL per tool type (2h for ports, 24h for DNS/WHOIS).
+- **🔌 MCP Server** — Full Model Context Protocol support for integration with Claude Desktop, Cursor IDE, VS Code, and custom MCP clients.
 
 ---
 
@@ -88,7 +93,8 @@ export PATH="$HOME/go/bin:$PATH"
 npm link
 
 # 7. Run!
-jarvis
+jarvis         # Interactive CLI
+jarvis -ui     # Web UI Dashboard (http://localhost:3000)
 ```
 
 ### Optional: Passwordless Sudo (for Telegram Bot / Daemon Mode)
@@ -107,11 +113,29 @@ sudo chmod 440 /etc/sudoers.d/jarvis-nopasswd
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Interactive CLI** | `jarvis` | Default mode. Chat naturally with Jarvis. |
+| **Web UI** | `jarvis -ui` or `jarvis --web` | Browser-based command center at `http://localhost:3000`. |
+| **Web UI (custom port)** | `jarvis --web --port 3001` | Web UI on a custom port. |
 | **MCP Server (stdio)** | `jarvis --mcp` | Expose tools for local MCP clients (Claude Desktop, Cursor). |
 | **MCP Server (SSE)** | `jarvis --mcp --port 8888` | Remote MCP server via SSE transport. |
 | **Telegram Bot** | `jarvis --telegram` | Control Jarvis remotely from your phone. |
 | **Background Daemon** | `jarvis --daemon` | 24/7 mode with auto-learning, Telegram bot, heartbeat. |
 | **Single Learn Cycle** | `jarvis --learn` | Run one auto-learning cycle and exit. |
+
+### Web UI Command Center
+
+Launch the Web UI and access it at `http://localhost:3000`:
+
+```bash
+jarvis -ui
+```
+
+The Web UI includes:
+- **📊 Dashboard** — System health, API status, active proxy services, database statistics
+- **💬 Agent Chat** — Real-time AI conversation with thinking steps visualization, tool execution cards, session history sidebar, and smart auto-scroll
+- **🔧 Tools** — Browse and search 150+ Kali tools + 35 API tools with install status
+- **🛡️ Threat Intel** — Latest CVEs, exploit search, threat intelligence feed
+- **📝 Reports** — Generated pentest reports with download/view capability
+- **⚙️ Settings** — Model configuration, API parameters, temperature/top-p tuning
 
 ### MCP Client Configuration (Claude Desktop)
 
@@ -243,7 +267,7 @@ These are native tools with dedicated implementations (not CLI wrappers):
 |------|-------------|
 | `encode_decode` | Encoding utilities (base64, hex, URL, etc.) |
 | `hash_generate` | Hash generation (MD5, SHA, etc.) |
-| `save_artifact` | Save scan results/reports to disk |
+| `save_artifact` | Save scan results/reports to disk (with approval gates) |
 | `memory_store` | Store/retrieve data from persistent memory |
 | `metasploit_rpc` | Metasploit Framework integration |
 
@@ -269,14 +293,32 @@ These are native tools with dedicated implementations (not CLI wrappers):
 
 ```
 Cyber-Security-Agentic-Framework/
-├── cli.js                          # Entry point — CLI, Telegram, daemon, MCP modes
+├── cli.js                          # Entry point — CLI, Web UI, Telegram, daemon, MCP modes
 ├── package.json                    # Dependencies & npm scripts
 ├── install-service.sh              # Systemd auto-start installer
 ├── .env.example                    # Environment template
 ├── ARCHITECTURE.md                 # Deep-dive technical documentation
+├── AGENT.md                        # Project context for AI agent
+├── public/                         # Web UI frontend
+│   ├── index.html                  # SPA shell with sidebar navigation
+│   ├── css/
+│   │   ├── index.css               # Global styles, design system
+│   │   └── chat.css                # Chat view styles, thinking animation, tool cards
+│   └── js/
+│       ├── app.js                  # SPA router, Socket.io client, view management
+│       ├── components/
+│       │   ├── markdown.js         # Markdown renderer (marked.js + DOMPurify)
+│       │   └── toast.js            # Toast notification system
+│       └── views/
+│           ├── chat.js             # Agent chat with sessions, thinking, tool cards
+│           ├── dashboard.js        # System health, stats, services
+│           ├── intel.js            # Threat intelligence browser
+│           ├── reports.js          # Report viewer & downloader
+│           ├── settings.js         # Model & API configuration
+│           └── tools.js            # Tool browser (API + Kali)
 ├── src/
 │   ├── agent.js                    # OODA agentic loop with anti-loop intelligence
-│   ├── api.js                      # NVIDIA NIM API client (streaming)
+│   ├── api.js                      # NVIDIA NIM API client (streaming, chain-of-thought)
 │   ├── auto-learner.js             # 24/7 cyber threat intelligence engine
 │   ├── config.js                   # Configuration management
 │   ├── daemon.js                   # Background daemon + cron scheduler
@@ -285,7 +327,7 @@ Cyber-Security-Agentic-Framework/
 │   ├── kali-tools-registry.js      # 150+ Kali tools with usage examples
 │   ├── listener-manager.js         # TCP listener manager for reverse shells
 │   ├── mcp-server.js               # MCP Server — stdio & SSE transports (v4.0)
-│   ├── memory.js                   # SQLite database (persistent memory)
+│   ├── memory.js                   # SQLite database (15+ tables, persistent memory)
 │   ├── repl.js                     # Interactive CLI REPL
 │   ├── report-engine.js            # Dynamic pentest report generator (v4.0)
 │   ├── skills-manager.js           # Custom skill loader (skills/ directory)
@@ -295,6 +337,7 @@ Cyber-Security-Agentic-Framework/
 │   ├── tool-bridge.js              # Runtime service discovery & proxy routing (v4.0)
 │   ├── tool-installer.js           # Dynamic tool installer & self-healing
 │   ├── ui.js                       # Terminal UI with banners & streaming
+│   ├── web-server.js               # Express + Socket.io web server (v4.0)
 │   └── tools/                      # 35 built-in tool implementations
 │       ├── index.js                # Tool registry & permission classification
 │       ├── bg-interact.js          # Background process interaction
@@ -316,7 +359,7 @@ Cyber-Security-Agentic-Framework/
 │       ├── projectdiscovery.js     # Nuclei, Subfinder, Httpx, etc.
 │       ├── read-file.js            # File reader
 │       ├── read-url.js             # URL content extraction
-│       ├── save-artifact.js        # Scan result saver
+│       ├── save-artifact.js        # Scan result saver (with approval gates)
 │       ├── search-files.js         # Regex file search
 │       ├── search-glob.js          # Glob pattern search
 │       ├── shodan-search.js        # Shodan integration
@@ -350,6 +393,69 @@ Cyber-Security-Agentic-Framework/
 | `/clear` | Clear conversation |
 | `/compact` | Compact history |
 | `/exit` | Exit |
+
+---
+
+## 🌐 Web UI API Reference
+
+The Web UI exposes 25+ REST API endpoints for programmatic access:
+
+<details>
+<summary><strong>REST API Endpoints</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/health` | System health, model, API status, active services |
+| `GET` | `/api/stats` | Database table counts |
+| `GET` | `/api/tools` | API tool definitions |
+| `GET` | `/api/kali-tools` | Full Kali tool registry with install status |
+| `GET` | `/api/frameworks` | MITRE ATT&CK + Cyber Kill Chain data |
+| `GET` | `/api/threat-intel` | Latest CVEs, intel/exploit/tool counts |
+| `GET` | `/api/threat-intel/search?q=...` | Search threat intelligence |
+| `GET` | `/api/exploits/search?q=...` | Search exploit database |
+| `GET` | `/api/scan-results` | Scan results (filterable by target/type) |
+| `GET` | `/api/operations` | Operations log |
+| `GET` | `/api/knowledge?q=...` | Knowledge search |
+| `GET` | `/api/targets` | Target profiles |
+| `GET` | `/api/loot` | Captured credentials/loot |
+| `GET` | `/api/services` | Active proxy/tool services |
+| `GET` | `/api/config` | Current configuration |
+| `POST` | `/api/config` | Update model/temperature/topP/maxTokens |
+| `POST` | `/api/report` | Generate pentest report |
+| `GET` | `/api/reports-list` | List generated reports |
+| `GET` | `/api/reports/download/:file` | Download a report |
+| `GET` | `/api/chat/sessions` | List chat sessions |
+| `POST` | `/api/chat/sessions` | Create new session |
+| `PUT` | `/api/chat/sessions/:id` | Rename session |
+| `DELETE` | `/api/chat/sessions/:id` | Delete session |
+| `GET` | `/api/chat/search?q=...` | Search chat sessions |
+| `GET` | `/api/learning-stats` | Auto-learning statistics |
+| `GET` | `/api/agent-usage` | Token usage stats |
+
+</details>
+
+<details>
+<summary><strong>WebSocket Events (Socket.io)</strong></summary>
+
+| Event | Direction | Description |
+|-------|-----------|-------------|
+| `chat:ready` | Server → Client | Agent initialized, sends model & usage |
+| `chat:message` | Client → Server | Send user message with sessionId |
+| `chat:text` | Server → Client | Streamed text response chunk |
+| `chat:thinking` | Server → Client | Chain-of-thought reasoning token |
+| `chat:tool_start` | Server → Client | Tool execution started (name + args) |
+| `chat:tool_done` | Server → Client | Tool execution complete (name + args + result) |
+| `chat:done` | Server → Client | Turn complete with usage stats |
+| `chat:error` | Server → Client | Error message |
+| `chat:abort` | Client → Server | Cancel current generation |
+| `chat:clear` | Client → Server | Clear history & start new session |
+| `chat:compact` | Client → Server | Compact conversation history |
+| `chat:session_created` | Server → Client | New session ID + title |
+| `chat:switch_session` | Client → Server | Load a different session |
+| `chat:session_loaded` | Server → Client | Session messages loaded |
+| `chat:new_session` | Client → Server | Create new session + clear |
+
+</details>
 
 ---
 
