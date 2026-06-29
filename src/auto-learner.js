@@ -40,7 +40,7 @@ export class AutoLearner {
     this.stats.tools = 0;
     const start = Date.now();
     console.log(`\n🧠 [AutoLearner] Starting MAXIMUM cyber intelligence collection... (Run #${this.stats.total_runs})`);
-    console.log('   Fetching from 20+ sources with maximum limits...\n');
+    console.log('   Fetching from 28+ sources with maximum limits...\n');
 
     try {
       memory.init();
@@ -98,6 +98,25 @@ export class AutoLearner {
       await sleep(1000);
       await this.fetchRansomwareTracker(); // Ransomware group tracking
       await sleep(1000);
+
+      // ═══ TIER 7: Extended OSINT Sources ═══
+      await this.fetchVirusTotal();        // VirusTotal — malware/file intel (API key)
+      await sleep(1500);
+      await this.fetchShodanIntel();       // Shodan — exploit/honeypot intel (API key)
+      await sleep(1500);
+      await this.fetchAlienVaultOTX();     // AlienVault OTX — threat pulses (FREE)
+      await sleep(1500);
+      await this.fetchMITREAttack();       // MITRE ATT&CK — full technique matrix (FREE)
+      await sleep(1500);
+      await this.fetchHIBPBreaches();      // Have I Been Pwned — breach catalog (FREE)
+      await sleep(1500);
+      await this.fetchC2IntelFeeds();      // C2 Tracker — Cobalt/Sliver/Havoc/MSF C2s (FREE)
+      await sleep(1500);
+      await this.fetchTORExitNodes();      // TOR exit nodes (FREE)
+      await sleep(1000);
+
+      // ═══ TIER 8: Attack Memory Feedback Loop ═══
+      await this.learnFromAttackMemory();  // Learn from own ops/scans/attacks/loot
 
       const elapsed = ((Date.now() - start) / 1000).toFixed(1);
       console.log(`\n✅ [AutoLearner] COMPLETE in ${elapsed}s — CVEs: ${this.stats.cves}, Exploits: ${this.stats.exploits}, Threats: ${this.stats.threats}, Tools: ${this.stats.tools}`);
@@ -859,9 +878,552 @@ export class AutoLearner {
     console.log(`    ✅ Stored ${count} ransomware group posts`);
   }
 
+  // ═══════════════════════════════════════════════
+  // TIER 7: EXTENDED OSINT SOURCES
+  // ═══════════════════════════════════════════════
+
+  // ═══ VirusTotal — Popular/Recent Files & Domain Reports ═══
+  async fetchVirusTotal() {
+    console.log('  📡 [21/28] Fetching VirusTotal intelligence...');
+    const batchId = `vt-${new Date().toISOString().slice(0, 13)}`;
+    if (memory.isLearned('virustotal', batchId)) { console.log('    ⏩ Already fetched this hour'); return; }
+
+    const vtKey = config.virusTotalApiKey;
+    if (!vtKey) { console.log('    ⚠️ No VirusTotal API key configured'); return; }
+
+    let count = 0;
+
+    // 1. Popular threat categories — recent popular files
+    const popularUrl = `https://www.virustotal.com/api/v3/popular_threat_categories`;
+    const popularData = await safeFetch(popularUrl, {
+      headers: { 'x-apikey': vtKey }
+    });
+    if (popularData?.data) {
+      for (const cat of (Array.isArray(popularData.data) ? popularData.data : [])) {
+        memory.storeKnowledge(`vt-threat-category:${cat.id || cat}`, JSON.stringify(cat), 'virustotal');
+        count++;
+      }
+    }
+
+    await sleep(15500); // VT free = 4 req/min, wait 15.5s between calls
+
+    // 2. Fetch recently submitted files (popular/detected)
+    const recentUrl = `https://www.virustotal.com/api/v3/files?limit=10&filter=positives:5+`;
+    const recentData = await safeFetch(recentUrl, {
+      headers: { 'x-apikey': vtKey }
+    });
+
+    // Fallback: if /files doesn't work, try the intelligence feed
+    if (!recentData?.data) {
+      // Try the hunt livehunt feed
+      const livehuntUrl = `https://www.virustotal.com/api/v3/intelligence/search?query=positives:10+ type:peexe&limit=10`;
+      const livehuntData = await safeFetch(livehuntUrl, {
+        headers: { 'x-apikey': vtKey }
+      });
+      if (livehuntData?.data) {
+        for (const file of livehuntData.data) {
+          const hash = file.id || file.attributes?.sha256 || '';
+          const attrs = file.attributes || {};
+          memory.storeThreatIntel('malware_vt', hash, {
+            title: `VT Malware: ${attrs.meaningful_name || attrs.type_description || hash.slice(0, 16)}`,
+            description: `SHA256: ${hash}. Type: ${attrs.type_description || 'unknown'}. Size: ${attrs.size || 0} bytes. Detections: ${attrs.last_analysis_stats?.malicious || 0}/${attrs.last_analysis_stats?.undetected || 0}. Names: ${(attrs.names || []).slice(0, 5).join(', ')}. Tags: ${(attrs.tags || []).join(', ')}`,
+            severity: (attrs.last_analysis_stats?.malicious || 0) > 20 ? 'CRITICAL' : 'HIGH',
+            source: 'virustotal',
+            published_at: attrs.first_submission_date ? new Date(attrs.first_submission_date * 1000).toISOString() : null
+          });
+          count++;
+        }
+      }
+    } else {
+      for (const file of (recentData.data || [])) {
+        const hash = file.id || file.attributes?.sha256 || '';
+        const attrs = file.attributes || {};
+        memory.storeThreatIntel('malware_vt', hash, {
+          title: `VT Malware: ${attrs.meaningful_name || attrs.type_description || hash.slice(0, 16)}`,
+          description: `SHA256: ${hash}. Type: ${attrs.type_description || 'unknown'}. Size: ${attrs.size || 0} bytes. Detections: ${attrs.last_analysis_stats?.malicious || 0}/${attrs.last_analysis_stats?.undetected || 0}. Names: ${(attrs.names || []).slice(0, 5).join(', ')}`,
+          severity: (attrs.last_analysis_stats?.malicious || 0) > 20 ? 'CRITICAL' : 'HIGH',
+          source: 'virustotal',
+          published_at: attrs.first_submission_date ? new Date(attrs.first_submission_date * 1000).toISOString() : null
+        });
+        count++;
+      }
+    }
+
+    await sleep(15500);
+
+    // 3. Fetch trending/recent comments for threat context
+    const commentsUrl = `https://www.virustotal.com/api/v3/comments?limit=20&filter=date:${new Date().toISOString().slice(0, 10)}`;
+    const commentsData = await safeFetch(commentsUrl, {
+      headers: { 'x-apikey': vtKey }
+    });
+    if (commentsData?.data) {
+      for (const comment of (commentsData.data || [])) {
+        const attrs = comment.attributes || {};
+        if (!attrs.text) continue;
+        const cves = (attrs.text || '').match(/CVE-\d{4}-\d{4,}/g) || [];
+        if (cves.length > 0 || (attrs.text || '').length > 50) {
+          memory.storeKnowledge(`vt-community:${comment.id || count}`, JSON.stringify({
+            text: (attrs.text || '').slice(0, 500),
+            votes: attrs.votes,
+            date: attrs.date,
+            cves,
+            source: 'virustotal-community'
+          }), 'virustotal');
+          count++;
+        }
+      }
+    }
+
+    this.stats.threats += count;
+    memory.markLearned('virustotal', batchId, 'vt_intel', count);
+    console.log(`    ✅ Stored ${count} VirusTotal intelligence items`);
+  }
+
+  // ═══ Shodan — Recent Honeypot Data & Trending Exploits ═══
+  async fetchShodanIntel() {
+    console.log('  📡 [22/28] Fetching Shodan intelligence...');
+    const batchId = `shodan-${new Date().toISOString().slice(0, 13)}`;
+    if (memory.isLearned('shodan-intel', batchId)) { console.log('    ⏩ Already fetched this hour'); return; }
+
+    const shodanKey = config.shodanApiKey;
+    if (!shodanKey) { console.log('    ⚠️ No Shodan API key configured'); return; }
+
+    let count = 0;
+
+    // 1. Shodan Exploits search — top CVEs
+    const exploitsUrl = `https://exploits.shodan.io/api/search?query=type:cve&key=${shodanKey}`;
+    const exploitsData = await safeFetch(exploitsUrl);
+    if (exploitsData?.matches) {
+      for (const exploit of (exploitsData.matches || []).slice(0, 100)) {
+        const cveId = exploit.cve?.[0] || exploit._id || `SHDN-${count}`;
+        memory.storeThreatIntel('shodan_exploit', cveId, {
+          title: `Shodan: ${exploit.description?.slice(0, 200) || cveId}`,
+          description: `Source: ${exploit.source || 'shodan'}. Platform: ${exploit.platform || 'multi'}. Type: ${exploit.type || 'exploit'}. CVEs: ${(exploit.cve || []).join(', ')}. Port: ${exploit.port || 'N/A'}`,
+          severity: 'HIGH',
+          source: 'shodan',
+          published_at: exploit.date || null
+        });
+        count++;
+      }
+    }
+
+    await sleep(1500);
+
+    // 2. Shodan honeypot/honeyscore — known honeypot indicators
+    // Fetch Shodan's known ports/protocols (DNS data)
+    const dnsUrl = `https://api.shodan.io/dns/domain/google.com?key=${shodanKey}`;
+    const dnsData = await safeFetch(dnsUrl);
+    // This is more for validation; main value is the exploit search above
+
+    // 3. Shodan API info — track query credits
+    const infoUrl = `https://api.shodan.io/api-info?key=${shodanKey}`;
+    const infoData = await safeFetch(infoUrl);
+    if (infoData) {
+      memory.storeKnowledge('shodan-api-info', JSON.stringify({
+        query_credits: infoData.query_credits,
+        scan_credits: infoData.scan_credits,
+        plan: infoData.plan,
+        source: 'shodan'
+      }), 'shodan');
+    }
+
+    this.stats.threats += count;
+    memory.markLearned('shodan-intel', batchId, 'shodan_intel', count);
+    console.log(`    ✅ Stored ${count} Shodan intelligence items`);
+  }
+
+  // ═══ AlienVault OTX — Open Threat Exchange Pulses ═══
+  async fetchAlienVaultOTX() {
+    console.log('  📡 [23/28] Fetching AlienVault OTX threat pulses (FREE)...');
+    const batchId = `otx-${new Date().toISOString().slice(0, 10)}`;
+    if (memory.isLearned('otx', batchId)) { console.log('    ⏩ Already fetched today'); return; }
+
+    // Public subscribed pulses — no API key required
+    const data = await safeFetch('https://otx.alienvault.com/api/v1/pulses/subscribed?limit=50&modified_since=2024-01-01');
+    
+    // Fallback: activity feed
+    const activityData = data || await safeFetch('https://otx.alienvault.com/api/v1/pulses/activity?limit=50');
+    
+    if (!activityData?.results && !activityData?.data) {
+      // Try the community pulse search
+      const searchData = await safeFetch('https://otx.alienvault.com/api/v1/search/pulses?q=malware&limit=50');
+      if (!searchData?.results) { console.log('    ⚠️ AlienVault OTX unavailable'); return; }
+      
+      let count = 0;
+      for (const pulse of (searchData.results || [])) {
+        const indicators = pulse.indicators || [];
+        memory.storeThreatIntel('otx_pulse', pulse.id || `otx-${count}`, {
+          title: `OTX: ${(pulse.name || '').slice(0, 250)}`,
+          description: `${(pulse.description || '').slice(0, 500)}. Tags: ${(pulse.tags || []).join(', ')}. IOC count: ${indicators.length}. TLP: ${pulse.tlp || 'white'}. Adversary: ${pulse.adversary || 'unknown'}`,
+          severity: (pulse.adversary || pulse.targeted_countries?.length > 0) ? 'HIGH' : 'MEDIUM',
+          source: 'alienvault-otx',
+          published_at: pulse.created || pulse.modified
+        });
+        count++;
+
+        // Store individual IOCs from pulses
+        for (const ioc of indicators.slice(0, 10)) {
+          memory.storeThreatIntel('otx_ioc', `${ioc.type}:${ioc.indicator}`, {
+            title: `OTX IOC: ${ioc.type} - ${(ioc.indicator || '').slice(0, 100)}`,
+            description: `Pulse: ${(pulse.name || '').slice(0, 150)}. Type: ${ioc.type}. Title: ${ioc.title || 'N/A'}`,
+            severity: 'MEDIUM',
+            source: 'alienvault-otx'
+          });
+          count++;
+        }
+      }
+      this.stats.threats += count;
+      memory.markLearned('otx', batchId, 'otx_batch', count);
+      console.log(`    ✅ Stored ${count} AlienVault OTX items`);
+      return;
+    }
+
+    let count = 0;
+    const pulses = activityData?.results || activityData?.data || [];
+    for (const pulse of pulses) {
+      const indicators = pulse.indicators || [];
+      memory.storeThreatIntel('otx_pulse', pulse.id || `otx-${count}`, {
+        title: `OTX: ${(pulse.name || '').slice(0, 250)}`,
+        description: `${(pulse.description || '').slice(0, 500)}. Tags: ${(pulse.tags || []).join(', ')}. IOC count: ${indicators.length}. TLP: ${pulse.tlp || 'white'}. Adversary: ${pulse.adversary || 'unknown'}`,
+        severity: (pulse.adversary || pulse.targeted_countries?.length > 0) ? 'HIGH' : 'MEDIUM',
+        source: 'alienvault-otx',
+        published_at: pulse.created || pulse.modified
+      });
+      count++;
+
+      // Store individual IOCs from pulses
+      for (const ioc of indicators.slice(0, 10)) {
+        memory.storeThreatIntel('otx_ioc', `${ioc.type}:${ioc.indicator}`, {
+          title: `OTX IOC: ${ioc.type} - ${(ioc.indicator || '').slice(0, 100)}`,
+          description: `Pulse: ${(pulse.name || '').slice(0, 150)}. Type: ${ioc.type}. Title: ${ioc.title || 'N/A'}`,
+          severity: 'MEDIUM',
+          source: 'alienvault-otx'
+        });
+        count++;
+      }
+    }
+    this.stats.threats += count;
+    memory.markLearned('otx', batchId, 'otx_batch', count);
+    console.log(`    ✅ Stored ${count} AlienVault OTX items`);
+  }
+
+  // ═══ MITRE ATT&CK Enterprise — Full Technique Matrix ═══
+  async fetchMITREAttack() {
+    console.log('  📡 [24/28] Fetching MITRE ATT&CK Enterprise techniques (FREE)...');
+    if (memory.isLearned('mitre-attack', 'enterprise-v1')) { console.log('    ⏩ Already learned'); return; }
+
+    const data = await safeFetch('https://raw.githubusercontent.com/mitre/cti/master/enterprise-attack/enterprise-attack.json');
+    if (!data?.objects) { console.log('    ⚠️ MITRE ATT&CK data unavailable'); return; }
+
+    let count = 0;
+    for (const obj of data.objects) {
+      if (obj.type !== 'attack-pattern') continue;
+      const attackId = obj.external_references?.find(r => r.source_name === 'mitre-attack')?.external_id || '';
+      if (!attackId) continue;
+
+      const platforms = obj.x_mitre_platforms || [];
+      const tactics = (obj.kill_chain_phases || []).map(p => p.phase_name);
+      const dataSources = obj.x_mitre_data_sources || [];
+
+      memory.storeKnowledge(`mitre-attack:${attackId}`, JSON.stringify({
+        id: attackId,
+        name: obj.name,
+        description: (obj.description || '').slice(0, 1500),
+        tactics,
+        platforms,
+        data_sources: dataSources.slice(0, 10),
+        detection: (obj.x_mitre_detection || '').slice(0, 500),
+        is_subtechnique: obj.x_mitre_is_subtechnique || false,
+        deprecated: obj.x_mitre_deprecated || false,
+        source: 'mitre-attack'
+      }), 'mitre-attack');
+      count++;
+    }
+
+    // Also extract groups/software for context
+    for (const obj of data.objects) {
+      if (obj.type === 'intrusion-set') {
+        const groupId = obj.external_references?.find(r => r.source_name === 'mitre-attack')?.external_id || '';
+        if (!groupId) continue;
+        memory.storeKnowledge(`mitre-group:${groupId}`, JSON.stringify({
+          id: groupId,
+          name: obj.name,
+          description: (obj.description || '').slice(0, 1000),
+          aliases: obj.aliases || [],
+          source: 'mitre-attack'
+        }), 'mitre-attack');
+        count++;
+      }
+    }
+
+    this.stats.tools += count;
+    memory.markLearned('mitre-attack', 'enterprise-v1', 'attack_techniques', count);
+    console.log(`    ✅ Stored ${count} MITRE ATT&CK techniques & groups`);
+  }
+
+  // ═══ Have I Been Pwned — Public Breach Catalog ═══
+  async fetchHIBPBreaches() {
+    console.log('  📡 [25/28] Fetching HIBP breach catalog (FREE)...');
+    const batchId = `hibp-${new Date().toISOString().slice(0, 10)}`;
+    if (memory.isLearned('hibp', batchId)) { console.log('    ⏩ Already fetched today'); return; }
+
+    const data = await safeFetch('https://haveibeenpwned.com/api/v3/breaches', {
+      headers: { 'User-Agent': 'Jarvis-CyberAgent' }
+    });
+    if (!data || !Array.isArray(data)) { console.log('    ⚠️ HIBP API unavailable'); return; }
+
+    let count = 0;
+    for (const breach of data) {
+      memory.storeThreatIntel('breach', breach.Name, {
+        title: `Breach: ${breach.Title || breach.Name}`,
+        description: `Domain: ${breach.Domain || 'N/A'}. Pwned accounts: ${(breach.PwnCount || 0).toLocaleString()}. Data types: ${(breach.DataClasses || []).join(', ')}. Verified: ${breach.IsVerified}. Sensitive: ${breach.IsSensitive}. ${(breach.Description || '').replace(/<[^>]+>/g, '').slice(0, 500)}`,
+        severity: (breach.PwnCount || 0) > 1000000 ? 'CRITICAL' : (breach.PwnCount || 0) > 100000 ? 'HIGH' : 'MEDIUM',
+        source: 'hibp',
+        published_at: breach.BreachDate || breach.AddedDate
+      });
+      count++;
+    }
+    this.stats.threats += count;
+    memory.markLearned('hibp', batchId, 'breach_batch', count);
+    console.log(`    ✅ Stored ${count} HIBP breach records`);
+  }
+
+  // ═══ C2IntelFeeds — Command & Control Infrastructure ═══
+  async fetchC2IntelFeeds() {
+    console.log('  📡 [26/28] Fetching C2 intelligence feeds (FREE)...');
+    const batchId = `c2intel-${new Date().toISOString().slice(0, 10)}`;
+    if (memory.isLearned('c2intel', batchId)) { console.log('    ⏩ Already fetched today'); return; }
+
+    let count = 0;
+
+    // 1. Cobalt Strike C2 IPs (from Montysecurity)
+    const cobaltData = await safeFetchText('https://raw.githubusercontent.com/montysecurity/C2-Tracker/main/data/CobaltStrike.csv');
+    if (cobaltData) {
+      for (const line of cobaltData.split('\n').slice(1)) {
+        const parts = line.trim().split(',');
+        if (parts.length < 2) continue;
+        const ip = parts[0]?.trim();
+        if (!ip || ip === 'ip') continue;
+        memory.storeThreatIntel('c2_cobalt', ip, {
+          title: `C2 Cobalt Strike: ${ip}`,
+          description: `Known Cobalt Strike C2 server. Port: ${parts[1] || 'N/A'}. First seen in C2-Tracker feed.`,
+          severity: 'CRITICAL',
+          source: 'c2-tracker-cobalt',
+        });
+        count++;
+      }
+    }
+
+    // 2. Metasploit C2 IPs
+    const msfData = await safeFetchText('https://raw.githubusercontent.com/montysecurity/C2-Tracker/main/data/Metasploit.csv');
+    if (msfData) {
+      for (const line of msfData.split('\n').slice(1)) {
+        const parts = line.trim().split(',');
+        if (parts.length < 2) continue;
+        const ip = parts[0]?.trim();
+        if (!ip || ip === 'ip') continue;
+        memory.storeThreatIntel('c2_metasploit', ip, {
+          title: `C2 Metasploit: ${ip}`,
+          description: `Known Metasploit C2 server. Port: ${parts[1] || 'N/A'}`,
+          severity: 'HIGH',
+          source: 'c2-tracker-metasploit',
+        });
+        count++;
+      }
+    }
+
+    // 3. Havoc C2 IPs
+    const havocData = await safeFetchText('https://raw.githubusercontent.com/montysecurity/C2-Tracker/main/data/Havoc.csv');
+    if (havocData) {
+      for (const line of havocData.split('\n').slice(1)) {
+        const parts = line.trim().split(',');
+        if (parts.length < 2) continue;
+        const ip = parts[0]?.trim();
+        if (!ip || ip === 'ip') continue;
+        memory.storeThreatIntel('c2_havoc', ip, {
+          title: `C2 Havoc: ${ip}`,
+          description: `Known Havoc C2 framework server. Port: ${parts[1] || 'N/A'}`,
+          severity: 'HIGH',
+          source: 'c2-tracker-havoc',
+        });
+        count++;
+      }
+    }
+
+    // 4. Sliver C2 IPs
+    const sliverData = await safeFetchText('https://raw.githubusercontent.com/montysecurity/C2-Tracker/main/data/Sliver.csv');
+    if (sliverData) {
+      for (const line of sliverData.split('\n').slice(1)) {
+        const parts = line.trim().split(',');
+        if (parts.length < 2) continue;
+        const ip = parts[0]?.trim();
+        if (!ip || ip === 'ip') continue;
+        memory.storeThreatIntel('c2_sliver', ip, {
+          title: `C2 Sliver: ${ip}`,
+          description: `Known Sliver C2 framework server. Port: ${parts[1] || 'N/A'}`,
+          severity: 'HIGH',
+          source: 'c2-tracker-sliver',
+        });
+        count++;
+      }
+    }
+
+    this.stats.threats += count;
+    memory.markLearned('c2intel', batchId, 'c2_batch', count);
+    console.log(`    ✅ Stored ${count} C2 infrastructure indicators`);
+  }
+
+  // ═══ TOR Exit Nodes — Current TOR exit node IPs ═══
+  async fetchTORExitNodes() {
+    console.log('  📡 [27/28] Fetching TOR exit node list (FREE)...');
+    const batchId = `tor-${new Date().toISOString().slice(0, 10)}`;
+    if (memory.isLearned('tor-exits', batchId)) { console.log('    ⏩ Already fetched today'); return; }
+
+    const text = await safeFetchText('https://check.torproject.org/torbulkexitlist');
+    if (!text) {
+      // Fallback: Dan.me.uk TOR list
+      const fallback = await safeFetchText('https://www.dan.me.uk/torlist/?exit');
+      if (!fallback) { console.log('    ⚠️ TOR exit list unavailable'); return; }
+    }
+
+    const nodeList = (text || '').trim();
+    let count = 0;
+    for (const line of nodeList.split('\n')) {
+      const ip = line.trim();
+      if (!ip || ip.startsWith('#') || !ip.match(/^\d/)) continue;
+      memory.storeThreatIntel('tor_exit', ip, {
+        title: `TOR Exit Node: ${ip}`,
+        description: `Active TOR exit node IP. Traffic from this IP may be anonymized. Use for correlation with suspicious connections.`,
+        severity: 'MEDIUM',
+        source: 'torproject',
+      });
+      count++;
+    }
+    this.stats.threats += count;
+    memory.markLearned('tor-exits', batchId, 'tor_batch', count);
+    console.log(`    ✅ Stored ${count} TOR exit node IPs`);
+  }
+
+  // ═══════════════════════════════════════════════
+  // TIER 8: ATTACK MEMORY FEEDBACK LOOP
+  // ═══════════════════════════════════════════════
+
+  // ═══ Learn from own operations, scans, attacks, and loot ═══
+  async learnFromAttackMemory() {
+    console.log('  🧠 [28/28] Learning from own attack memory (FEEDBACK LOOP)...');
+    const batchId = `atkmem-${new Date().toISOString().slice(0, 13)}`;
+    if (memory.isLearned('attack-memory', batchId)) { console.log('    ⏩ Already processed this hour'); return; }
+
+    let count = 0;
+
+    // 1. Learn from completed operations → extract successful tools/techniques
+    try {
+      const ops = memory.getRecentOperationsForLearning(100);
+      for (const op of ops) {
+        const key = `op-${op.id}-${op.tool_name}`;
+        if (memory.getKnowledge(`attack-insight:${key}`)) continue;
+
+        memory.storeAttackInsight(key, {
+          type: 'operation_success',
+          tool: op.tool_name,
+          op_type: op.op_type,
+          target: op.target,
+          summary: (op.result_summary || '').slice(0, 500),
+          timestamp: op.completed_at || op.started_at,
+          lesson: `Tool "${op.tool_name}" successfully used for "${op.op_type}" on target "${op.target}". Result: ${(op.result_summary || '').slice(0, 200)}`
+        });
+        count++;
+      }
+    } catch (err) { console.log(`    ⚠️ Ops learning error: ${err.message}`); }
+
+    // 2. Learn from scan results → extract discovered services/vulns
+    try {
+      const scans = memory.getRecentScansForLearning(100);
+      for (const scan of scans) {
+        const key = `scan-${scan.id}-${scan.target}`;
+        if (memory.getKnowledge(`attack-insight:${key}`)) continue;
+
+        let ports, services, vulns;
+        try { ports = JSON.parse(scan.ports || '[]'); } catch { ports = []; }
+        try { services = JSON.parse(scan.services || '[]'); } catch { services = []; }
+        try { vulns = JSON.parse(scan.vulns || '[]'); } catch { vulns = []; }
+
+        memory.storeAttackInsight(key, {
+          type: 'scan_result',
+          scanner: scan.scanner,
+          scan_type: scan.scan_type,
+          target: scan.target,
+          ports_found: Array.isArray(ports) ? ports.length : 0,
+          services_found: Array.isArray(services) ? services.length : 0,
+          vulns_found: Array.isArray(vulns) ? vulns.length : 0,
+          severity: scan.severity,
+          os: scan.os_detected,
+          timestamp: scan.created_at,
+          lesson: `Scanner "${scan.scanner}" found ${Array.isArray(vulns) ? vulns.length : 0} vulns on "${scan.target}" (OS: ${scan.os_detected || 'unknown'}, Severity: ${scan.severity})`
+        });
+        count++;
+      }
+    } catch (err) { console.log(`    ⚠️ Scan learning error: ${err.message}`); }
+
+    // 3. Learn from successful attack chains → extract winning patterns
+    try {
+      const attacks = memory.getRecentAttackLogsForLearning(200);
+      const chainMap = {};
+      for (const atk of attacks) {
+        const opKey = atk.operation_id || 'unknown';
+        if (!chainMap[opKey]) chainMap[opKey] = [];
+        chainMap[opKey].push(atk);
+      }
+
+      for (const [opId, chain] of Object.entries(chainMap)) {
+        const key = `chain-${opId}`;
+        if (memory.getKnowledge(`attack-insight:${key}`)) continue;
+
+        const phases = chain.map(a => a.phase).filter(Boolean);
+        const actions = chain.map(a => a.action).filter(Boolean);
+        const targets = [...new Set(chain.map(a => a.target).filter(Boolean))];
+
+        memory.storeAttackInsight(key, {
+          type: 'attack_chain',
+          operation_id: opId,
+          phases: [...new Set(phases)],
+          actions: actions.slice(0, 20),
+          targets,
+          steps: chain.length,
+          timestamp: chain[0]?.timestamp,
+          lesson: `Successful ${chain.length}-step attack chain: ${[...new Set(phases)].join(' → ')}. Actions: ${actions.slice(0, 5).join(', ')}`
+        });
+        count++;
+      }
+    } catch (err) { console.log(`    ⚠️ Attack chain learning error: ${err.message}`); }
+
+    // 4. Learn from loot → index credential types and data patterns
+    try {
+      const lootItems = memory.getRecentLootForLearning(100);
+      for (const item of lootItems) {
+        const key = `loot-${item.id}-${item.type}`;
+        if (memory.getKnowledge(`attack-insight:${key}`)) continue;
+
+        memory.storeAttackInsight(key, {
+          type: 'loot_pattern',
+          loot_type: item.type,
+          target: item.target,
+          source_tool: item.source,
+          timestamp: item.created_at,
+          lesson: `Captured ${item.type} data from "${item.target}" using "${item.source}"`
+        });
+        count++;
+      }
+    } catch (err) { console.log(`    ⚠️ Loot learning error: ${err.message}`); }
+
+    memory.markLearned('attack-memory', batchId, 'feedback_loop', count);
+    console.log(`    ✅ Learned ${count} insights from own attack memory`);
+  }
+
   getStats() {
     return { ...this.stats };
   }
 }
 
 export const autoLearner = new AutoLearner();
+

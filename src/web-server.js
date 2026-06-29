@@ -406,6 +406,15 @@ export async function startWebServer(options = {}) {
     }
   });
 
+  // Attack memory stats — data learned from own operations
+  app.get('/api/attack-memory-stats', (req, res) => {
+    try {
+      res.json(memory.getAttackMemoryStats());
+    } catch (err) {
+      res.json({ operations: 0, scans: 0, successful_attacks: 0, loot: 0, learned_insights: 0 });
+    }
+  });
+
   // API: Memory & Files
   app.get('/api/memory', (req, res) => {
     res.json(memory.search(''));

@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Autonomous AI Cybersecurity Agent — Framework-Driven Offensive Security</strong><br>
-  150+ Kali Tools • 20+ Threat Intel Sources • Web UI Command Center • MCP Server • MITRE ATT&CK • Auto-Installer • Report Engine • Telegram Bot
+  150+ Kali Tools • 28+ Threat Intel Sources • Web UI Command Center • MCP Server • MITRE ATT&CK • Auto-Installer • Report Engine • Telegram Bot • Attack Memory Feedback Loop
 </p>
 
 <p align="center">
@@ -48,7 +48,8 @@ Jarvis Cyber is a **fully autonomous AI cybersecurity agent** powered by NVIDIA 
 - **📦 Self-Healing Tool Installer** — Missing a tool? Jarvis auto-installs it from `apt`, `pip`, `go`, `npm`, `gem`, `cargo`, GitHub, or direct URL. Crashes from missing dependencies trigger automatic self-repair.
 - **🌐 Web UI Dashboard** — Real-time browser-based command center with AI chat, tool browser, threat intel viewer, report management, and system settings.
 - **🤖 Telegram Bot** — Full remote control from your phone. Run pentests, execute commands, and receive results — all through Telegram.
-- **📡 24/7 Auto-Learning (20+ Sources)** — Continuously fetches CVEs, exploits, IOCs, malware hashes, phishing URLs, ransomware data, attack patterns, and security news from **20+ global threat feeds** (NVD, CISA KEV, CISA Alerts, Exploit-DB, PacketStorm, Vulners, abuse.ch Malware/URLs/IOCs, Feodo Tracker, SSL Blacklist, OpenPhish, PhishTank, URLScan.io, GitHub Advisories, FIRST.org EPSS, MITRE CAPEC, Nuclei Templates, HackerNews, RansomWatch). Fetches **5,000+ items per run**.
+- **📡 24/7 Auto-Learning (28+ Sources)** — Continuously fetches CVEs, exploits, IOCs, malware hashes, phishing URLs, ransomware data, breach catalogs, C2 infrastructure IPs, TOR exit nodes, attack techniques, and security news from **28+ global threat feeds** (NVD, CISA KEV, CISA Alerts, Exploit-DB, PacketStorm, Vulners, abuse.ch Malware/URLs/IOCs, Feodo Tracker, SSL Blacklist, OpenPhish, PhishTank, URLScan.io, GitHub Advisories, FIRST.org EPSS, MITRE CAPEC, Nuclei Templates, HackerNews, RansomWatch, **VirusTotal**, **Shodan**, **AlienVault OTX**, **MITRE ATT&CK Enterprise**, **Have I Been Pwned**, **C2 Tracker** (Cobalt Strike/Metasploit/Havoc/Sliver), **TOR Exit Nodes**). Fetches **10,000+ items per run**.
+- **🧠 Attack Memory Feedback Loop** — Jarvis learns from its own operations. Every completed scan, successful attack chain, and captured loot is automatically processed and stored as knowledge — so it gets smarter with every engagement.
 - **💾 Persistent Memory** — SQLite database with 15+ tables stores knowledge, scan results, strategies, attack logs, chat sessions, threat intel, and learned intelligence across sessions.
 - **📦 One-Click Tool Install from Web UI** — Install missing Kali tools individually or batch-install all 21+ missing tools directly from the Tools page with progress feedback.
 - **🔄 Anti-Loop Intelligence** — Detects repeated failures, prevents infinite tool-call loops, and adapts strategy when attacks are blocked (3-level protection system).
@@ -134,7 +135,7 @@ The Web UI includes:
 - **📊 Dashboard** — System health, API status, active proxy services, database statistics
 - **💬 Agent Chat** — Real-time AI conversation with thinking steps visualization, tool execution cards, session history sidebar, and smart auto-scroll
 - **🔧 Tools** — Browse and search 150+ Kali tools + 35 API tools with install status. **One-click install** for individual tools or batch "Install All Missing" button
-- **🛡️ Threat Intel** — Latest CVEs, exploit search, threat intelligence feed. **"Run Auto-Learning" button** fetches from 20+ sources with live progress bar
+- **🛡️ Threat Intel** — Latest CVEs, exploit search, threat intelligence feed, attack memory insights. **"Run Auto-Learning" button** fetches from 28+ sources (including VirusTotal, Shodan, MITRE ATT&CK, HIBP, C2 Tracker, TOR nodes) with live progress bar and source badges
 - **📝 Reports** — Generated pentest reports with download/view capability
 - **⚙️ Settings** — Model configuration, API parameters, temperature/top-p tuning
 
@@ -424,9 +425,10 @@ The Web UI exposes 25+ REST API endpoints for programmatic access:
 | `GET` | `/api/services` | Active proxy/tool services |
 | `GET` | `/api/config` | Current configuration |
 | `POST` | `/api/config` | Update model/temperature/topP/maxTokens |
-| `POST` | `/api/learn` | Trigger auto-learning from 20+ sources |
+| `POST` | `/api/learn` | Trigger auto-learning from 28+ sources |
 | `GET` | `/api/learning-status` | Check auto-learning progress |
 | `GET` | `/api/learning-stats` | Auto-learning statistics |
+| `GET` | `/api/attack-memory-stats` | Attack memory feedback loop stats (ops, scans, attacks, loot, insights) |
 | `POST` | `/api/report` | Generate pentest report |
 | `GET` | `/api/reports-list` | List generated reports |
 | `GET` | `/api/reports/download/:file` | Download a report |

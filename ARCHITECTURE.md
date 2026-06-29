@@ -565,11 +565,11 @@ Main Agent
 
 ---
 
-### 9. Auto-Learner — Threat Intelligence (MAXED — 20+ Sources)
+### 9. Auto-Learner — Threat Intelligence (MAXED — 28+ Sources)
 
-**File**: `src/auto-learner.js` (600+ lines)
+**File**: `src/auto-learner.js` (1400+ lines)
 
-A continuously running intelligence engine that fetches, processes, and stores cybersecurity data from **20+ global threat feeds**. Fetches **5,000+ items per run** with maximum limits.
+A continuously running intelligence engine that fetches, processes, and stores cybersecurity data from **28+ global threat feeds**. Fetches **10,000+ items per run** with maximum limits. Includes an **Attack Memory Feedback Loop** that learns from Jarvis's own operations.
 
 #### Data Sources & Pipeline
 
@@ -608,6 +608,20 @@ flowchart LR
         RANSOM["💀 RansomWatch"]
     end
 
+    subgraph "Tier 7: Extended OSINT"
+        VT["🔬 VirusTotal"]
+        SHODAN["🌐 Shodan"]
+        OTX["🛡️ AlienVault OTX"]
+        ATTACK["⚔️ MITRE ATT&CK"]
+        HIBP["🔓 HIBP Breaches"]
+        C2["💀 C2 Tracker"]
+        TOR["🧅 TOR Exits"]
+    end
+
+    subgraph "Tier 8: Feedback Loop"
+        ATKMEM["🧠 Attack Memory<br/>(Own Ops/Scans/Loot)"]
+    end
+
     subgraph "Pipeline"
         FETCH["Fetch & Parse"]
         DB["💾 SQLite"]
@@ -618,10 +632,13 @@ flowchart LR
     ABUSE & FEODO & SSLBL --> FETCH
     OPHISH & PTANK & USCAN --> FETCH
     CAPEC & NUCLEI & HN & RANSOM --> FETCH
+    VT & SHODAN & OTX & ATTACK --> FETCH
+    HIBP & C2 & TOR --> FETCH
+    ATKMEM --> FETCH
     FETCH --> DB
 ```
 
-#### Learning Schedule (20+ Sources)
+#### Learning Schedule (28+ Sources)
 
 | # | Source | Frequency | Max Items | Data Type |
 |---|--------|-----------|-----------|-----------|
@@ -646,7 +663,16 @@ flowchart LR
 | 19 | HackerNews | Hourly | 50 | Security news stories |
 | 20 | CISA Alerts | Daily | 100 | Official advisories |
 | 21 | RansomWatch | Daily | 500 | Ransomware group posts |
-| | **TOTAL PER RUN** | | **~5,000+** | |
+| 22 | **VirusTotal** | Hourly | 30+ | Malware files, threat categories, community intel |
+| 23 | **Shodan** | Hourly | 100+ | Exploit search, honeypot data |
+| 24 | **AlienVault OTX** | Daily | 50 pulses + IOCs | Threat pulses, community IOCs |
+| 25 | **MITRE ATT&CK** | Once | 700+ | Enterprise techniques + APT groups |
+| 26 | **Have I Been Pwned** | Daily | All | Complete breach catalog |
+| 27 | **C2 Tracker** | Daily | 500+ | Cobalt Strike, Metasploit, Havoc, Sliver C2 IPs |
+| 28 | **TOR Exit Nodes** | Daily | 1,000+ | Active TOR exit node IPs |
+| 29 | **Attack Memory** | Hourly | All | Own operations, scans, attack chains, loot |
+| | **TOTAL PER RUN** | | **~10,000+** | |
+
 
 
 ---

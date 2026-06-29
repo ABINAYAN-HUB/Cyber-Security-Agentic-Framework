@@ -766,6 +766,52 @@ class Memory {
   }
 
   // ═══════════════════════════════════════════
+  // ATTACK MEMORY — Learn from own operations
+  // ═══════════════════════════════════════════
+  getRecentOperationsForLearning(limit = 200) {
+    return this.db.prepare(`
+      SELECT * FROM operations 
+      WHERE status = 'completed' OR status = 'success'
+      ORDER BY completed_at DESC LIMIT ?
+    `).all(limit);
+  }
+
+  getRecentScansForLearning(limit = 200) {
+    return this.db.prepare(`
+      SELECT * FROM scan_results ORDER BY created_at DESC LIMIT ?
+    `).all(limit);
+  }
+
+  getRecentAttackLogsForLearning(limit = 500) {
+    return this.db.prepare(`
+      SELECT * FROM attack_logs WHERE success = 1 ORDER BY timestamp DESC LIMIT ?
+    `).all(limit);
+  }
+
+  getRecentLootForLearning(limit = 200) {
+    return this.db.prepare(`
+      SELECT * FROM loot ORDER BY created_at DESC LIMIT ?
+    `).all(limit);
+  }
+
+  storeAttackInsight(key, data, category = 'attack-memory') {
+    this.storeKnowledge(`attack-insight:${key}`, typeof data === 'object' ? JSON.stringify(data) : data, category);
+  }
+
+  getAttackMemoryStats() {
+    try {
+      const ops = this.db.prepare("SELECT COUNT(*) as count FROM operations WHERE status = 'completed' OR status = 'success'").get().count;
+      const scans = this.db.prepare("SELECT COUNT(*) as count FROM scan_results").get().count;
+      const attacks = this.db.prepare("SELECT COUNT(*) as count FROM attack_logs WHERE success = 1").get().count;
+      const loot = this.db.prepare("SELECT COUNT(*) as count FROM loot").get().count;
+      const insights = this.db.prepare("SELECT COUNT(*) as count FROM knowledge WHERE category = 'attack-memory'").get().count;
+      return { operations: ops, scans, successful_attacks: attacks, loot, learned_insights: insights };
+    } catch {
+      return { operations: 0, scans: 0, successful_attacks: 0, loot: 0, learned_insights: 0 };
+    }
+  }
+
+  // ═══════════════════════════════════════════
   // FULL STATS
   // ═══════════════════════════════════════════
   getStats() {
