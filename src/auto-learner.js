@@ -1,10 +1,53 @@
-// Jarvis Cyber — Auto-Learning Cyber Intelligence Engine (MAXED OUT)
-// Fetches from 20+ sources with maximum limits
-// Runs 24/7 — every 30 minutes when OS is on
+// Jarvis Cyber — Auto-Learning Cyber Intelligence Engine (OPTIMIZED)
+// Smart tiered scheduling: FAST (4h), DAILY (24h), STATIC (once)
+// Adaptive rate limiting + parallel fetching to minimize API pressure
 import { memory } from './memory.js';
 import config from './config.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// ═══ SCHEDULING TIERS ═══
+// Controls how often each source is actually fetched, regardless of cron frequency
+const TIER = {
+  FAST:   4 * 60 * 60 * 1000,   // 4 hours  — volatile threat intel (CVEs, active exploits)
+  DAILY:  24 * 60 * 60 * 1000,  // 24 hours — stable feeds (breaches, C2 IPs, TOR nodes)
+  STATIC: Infinity,              // Once ever — frameworks, tool knowledge (MITRE, CAPEC)
+};
+
+// Track per-source last-run timestamps and failure counts for adaptive backoff
+const sourceState = {};
+
+function canRunSource(sourceName, tier) {
+  const state = sourceState[sourceName] || { lastRun: 0, failures: 0 };
+  const now = Date.now();
+  const cooldown = tier * Math.min(Math.pow(1.5, state.failures), 8); // exponential backoff on failures
+  return now - state.lastRun >= cooldown;
+}
+
+function markSourceRun(sourceName, success = true) {
+  if (!sourceState[sourceName]) sourceState[sourceName] = { lastRun: 0, failures: 0 };
+  sourceState[sourceName].lastRun = Date.now();
+  if (success) {
+    sourceState[sourceName].failures = 0;
+  } else {
+    sourceState[sourceName].failures = (sourceState[sourceName].failures || 0) + 1;
+  }
+}
+
+// Run multiple async tasks concurrently with a concurrency limit
+async function runParallel(tasks, concurrency = 3) {
+  const results = [];
+  const executing = new Set();
+  for (const task of tasks) {
+    const p = task().then(r => { executing.delete(p); return r; }).catch(e => { executing.delete(p); return null; });
+    executing.add(p);
+    results.push(p);
+    if (executing.size >= concurrency) {
+      await Promise.race(executing);
+    }
+  }
+  return Promise.allSettled(results);
+}
 
 // Safe fetch with timeout and error handling
 async function safeFetch(url, opts = {}) {
@@ -26,7 +69,7 @@ async function safeFetchText(url) {
 export class AutoLearner {
   constructor() {
     this.isRunning = false;
-    this.stats = { cves: 0, exploits: 0, threats: 0, tools: 0, total_runs: 0 };
+    this.stats = { cves: 0, exploits: 0, threats: 0, tools: 0, total_runs: 0, skipped: 0 };
   }
 
   async run() {
@@ -38,88 +81,97 @@ export class AutoLearner {
     this.stats.exploits = 0;
     this.stats.threats = 0;
     this.stats.tools = 0;
+    this.stats.skipped = 0;
     const start = Date.now();
-    console.log(`\n🧠 [AutoLearner] Starting MAXIMUM cyber intelligence collection... (Run #${this.stats.total_runs})`);
-    console.log('   Fetching from 28+ sources with maximum limits...\n');
+    console.log(`\n🧠 [AutoLearner] Smart cyber intelligence collection... (Run #${this.stats.total_runs})`);
+    console.log('   Using tiered scheduling: FAST=4h, DAILY=24h, STATIC=once\n');
 
     try {
       memory.init();
 
-      // ═══ TIER 1: Core Vulnerability Intelligence ═══
-      await this.fetchNVDCVEs();           // NVD — 2000 CVEs
-      await sleep(1500);
-      await this.fetchCISAKEV();           // CISA — ALL known exploited vulns
-      await sleep(1500);
-      await this.fetchGitHubAdvisories();  // GitHub — 100 advisories
-      await sleep(1500);
-      await this.fetchEPSSScores();        // FIRST.org — Exploit Prediction Scores
-      await sleep(1500);
+      // ═══ STATIC TIER — Run once ever, never repeat ═══
+      // These are stable knowledge bases that don't change frequently
+      const staticSources = [
+        { name: 'capec', fn: () => this.fetchMITRECAPEC() },
+        { name: 'cyber-tools', fn: () => this.learnCyberTools() },
+        { name: 'nuclei-stats', fn: () => this.fetchNucleiTemplateInfo() },
+        { name: 'mitre-attack', fn: () => this.fetchMITREAttack() },
+      ];
 
-      // ═══ TIER 2: Exploit Intelligence ═══
-      await this.fetchExploitDB();         // Exploit-DB — 200 exploits
-      await sleep(1500);
-      await this.fetchInTheWild();         // InTheWild.io — Exploits actively used
-      await sleep(1500);
-      await this.fetchPacketStorm();       // PacketStorm Security — Latest exploits
-      await sleep(1500);
-      await this.fetchVulners();           // Vulners.com — Vuln aggregator
-      await sleep(1500);
+      const staticTasks = staticSources.filter(s => canRunSource(s.name, TIER.STATIC));
+      if (staticTasks.length > 0) {
+        console.log(`  📦 STATIC tier: ${staticTasks.length} sources to learn (one-time)...`);
+        await runParallel(staticTasks.map(s => async () => {
+          try { await s.fn(); markSourceRun(s.name, true); }
+          catch (e) { markSourceRun(s.name, false); console.error(`    ⚠️ ${s.name}: ${e.message}`); }
+        }), 2);
+      } else {
+        console.log('  📦 STATIC tier: all learned ✓');
+      }
 
-      // ═══ TIER 3: Malware & IOC Intelligence ═══
-      await this.fetchThreatFeeds();       // abuse.ch Malware+URLs+IOCs (maxed)
-      await sleep(1500);
-      await this.fetchFeodoTracker();      // abuse.ch — Botnet C2 servers
-      await sleep(1500);
-      await this.fetchSSLBlacklist();      // abuse.ch — Malicious SSL certs
-      await sleep(1500);
+      // ═══ FAST TIER — Every 4 hours (volatile threat intel) ═══
+      const fastSources = [
+        { name: 'nvd', fn: () => this.fetchNVDCVEs() },
+        { name: 'cisa-kev', fn: () => this.fetchCISAKEV() },
+        { name: 'github-advisories', fn: () => this.fetchGitHubAdvisories() },
+        { name: 'epss', fn: () => this.fetchEPSSScores() },
+        { name: 'exploit-db', fn: () => this.fetchExploitDB() },
+        { name: 'inthewild', fn: () => this.fetchInTheWild() },
+        { name: 'packetstorm', fn: () => this.fetchPacketStorm() },
+        { name: 'vulners', fn: () => this.fetchVulners() },
+        { name: 'threat-feeds', fn: () => this.fetchThreatFeeds() },
+        { name: 'urlscan', fn: () => this.fetchURLScanIO() },
+        { name: 'nuclei-recent', fn: () => this.fetchRecentNucleiTemplates() },
+        { name: 'security-news', fn: () => this.fetchSecurityNews() },
+        { name: 'cisa-alerts', fn: () => this.fetchCISAAlerts() },
+        { name: 'attack-memory', fn: () => this.learnFromAttackMemory() },
+      ];
 
-      // ═══ TIER 4: Phishing & URL Intelligence ═══
-      await this.fetchOpenPhish();         // OpenPhish — Phishing URLs
-      await sleep(1500);
-      await this.fetchPhishTank();         // PhishTank — Verified phishing sites
-      await sleep(1500);
-      await this.fetchURLScanIO();         // URLScan.io — Recent scans
-      await sleep(1500);
+      const fastTasks = fastSources.filter(s => canRunSource(s.name, TIER.FAST));
+      const fastSkipped = fastSources.length - fastTasks.length;
+      if (fastSkipped > 0) this.stats.skipped += fastSkipped;
 
-      // ═══ TIER 5: Attack Patterns & Frameworks ═══
-      await this.fetchMITRECAPEC();        // MITRE CAPEC — Attack patterns
-      await sleep(1000);
-      await this.learnCyberTools();        // 25+ tool knowledge entries
-      await sleep(1000);
-      await this.fetchNucleiTemplateInfo();// Nuclei template stats
-      await sleep(1000);
-      await this.fetchRecentNucleiTemplates(); // Recent CVE templates
-      await sleep(1000);
+      if (fastTasks.length > 0) {
+        console.log(`  ⚡ FAST tier: ${fastTasks.length}/${fastSources.length} sources due (every 4h)...`);
+        await runParallel(fastTasks.map(s => async () => {
+          try { await s.fn(); markSourceRun(s.name, true); }
+          catch (e) { markSourceRun(s.name, false); console.error(`    ⚠️ ${s.name}: ${e.message}`); }
+        }), 4);
+      } else {
+        console.log(`  ⚡ FAST tier: all ${fastSources.length} sources up-to-date ✓`);
+      }
 
-      // ═══ TIER 6: News & Advisories ═══
-      await this.fetchSecurityNews();      // HackerNews — 50 stories
-      await sleep(1000);
-      await this.fetchCISAAlerts();        // CISA Alerts & Advisories
-      await sleep(1000);
-      await this.fetchRansomwareTracker(); // Ransomware group tracking
-      await sleep(1000);
+      // ═══ DAILY TIER — Once per day (stable feeds) ═══
+      const dailySources = [
+        { name: 'feodo', fn: () => this.fetchFeodoTracker() },
+        { name: 'sslbl', fn: () => this.fetchSSLBlacklist() },
+        { name: 'openphish', fn: () => this.fetchOpenPhish() },
+        { name: 'phishtank', fn: () => this.fetchPhishTank() },
+        { name: 'ransomware', fn: () => this.fetchRansomwareTracker() },
+        { name: 'virustotal', fn: () => this.fetchVirusTotal() },
+        { name: 'shodan-intel', fn: () => this.fetchShodanIntel() },
+        { name: 'otx', fn: () => this.fetchAlienVaultOTX() },
+        { name: 'hibp', fn: () => this.fetchHIBPBreaches() },
+        { name: 'c2intel', fn: () => this.fetchC2IntelFeeds() },
+        { name: 'tor-exits', fn: () => this.fetchTORExitNodes() },
+      ];
 
-      // ═══ TIER 7: Extended OSINT Sources ═══
-      await this.fetchVirusTotal();        // VirusTotal — malware/file intel (API key)
-      await sleep(1500);
-      await this.fetchShodanIntel();       // Shodan — exploit/honeypot intel (API key)
-      await sleep(1500);
-      await this.fetchAlienVaultOTX();     // AlienVault OTX — threat pulses (FREE)
-      await sleep(1500);
-      await this.fetchMITREAttack();       // MITRE ATT&CK — full technique matrix (FREE)
-      await sleep(1500);
-      await this.fetchHIBPBreaches();      // Have I Been Pwned — breach catalog (FREE)
-      await sleep(1500);
-      await this.fetchC2IntelFeeds();      // C2 Tracker — Cobalt/Sliver/Havoc/MSF C2s (FREE)
-      await sleep(1500);
-      await this.fetchTORExitNodes();      // TOR exit nodes (FREE)
-      await sleep(1000);
+      const dailyTasks = dailySources.filter(s => canRunSource(s.name, TIER.DAILY));
+      const dailySkipped = dailySources.length - dailyTasks.length;
+      if (dailySkipped > 0) this.stats.skipped += dailySkipped;
 
-      // ═══ TIER 8: Attack Memory Feedback Loop ═══
-      await this.learnFromAttackMemory();  // Learn from own ops/scans/attacks/loot
+      if (dailyTasks.length > 0) {
+        console.log(`  📅 DAILY tier: ${dailyTasks.length}/${dailySources.length} sources due (every 24h)...`);
+        await runParallel(dailyTasks.map(s => async () => {
+          try { await s.fn(); markSourceRun(s.name, true); }
+          catch (e) { markSourceRun(s.name, false); console.error(`    ⚠️ ${s.name}: ${e.message}`); }
+        }), 3);
+      } else {
+        console.log(`  📅 DAILY tier: all ${dailySources.length} sources up-to-date ✓`);
+      }
 
       const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-      console.log(`\n✅ [AutoLearner] COMPLETE in ${elapsed}s — CVEs: ${this.stats.cves}, Exploits: ${this.stats.exploits}, Threats: ${this.stats.threats}, Tools: ${this.stats.tools}`);
+      console.log(`\n✅ [AutoLearner] COMPLETE in ${elapsed}s — CVEs: ${this.stats.cves}, Exploits: ${this.stats.exploits}, Threats: ${this.stats.threats}, Tools: ${this.stats.tools}, Skipped: ${this.stats.skipped}`);
     } catch (err) {
       console.error(`❌ [AutoLearner] Error: ${err.message}`);
     } finally {

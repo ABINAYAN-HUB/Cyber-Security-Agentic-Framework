@@ -30,21 +30,67 @@ function networkErrorHint(errMsg, err) {
   if (msg.includes('ETIMEDOUT') || msg.includes('UND_ERR_CONNECT_TIMEOUT')) return ' (Connection timed out — server unreachable or network too slow)';
   if (msg.includes('ECONNRESET')) return ' (Connection reset by server — try again or check if IP is blocked)';
   if (msg.includes('CERT_HAS_EXPIRED') || msg.includes('UNABLE_TO_VERIFY')) return ' (SSL/TLS certificate error)';
+  if (msg.includes('aborted') || msg.includes('AbortError')) return ' (Request was aborted — likely a timeout or client disconnect. Will auto-retry.)';
   if (msg.includes('fetch failed')) return ' (Hint: Likely a local network outage. Verify connectivity with ping 8.8.8.8)';
   return '';
 }
 
 async function fetchWithRetry(url, options, maxRetries = 10) {
   let lastError;
+  let rateLimitHits = 0;
+  const MAX_RATE_LIMIT_RETRIES = 6; // Don't burn all 10 retries on rate limits
+
+  // Extract the caller's signal so we can create per-attempt timeouts
+  const callerSignal = options.signal || null;
+  const PER_ATTEMPT_TIMEOUT_MS = 120000; // 2 minutes per individual attempt
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    // CRITICAL FIX: If the caller's signal is already aborted (e.g., WebSocket disconnect),
+    // don't waste retries — each attempt would fail instantly with "aborted".
+    // Instead, create a fresh timeout-only signal for each attempt.
+    let attemptSignal;
     try {
-      const response = await fetch(url, options);
+      if (callerSignal && !callerSignal.aborted) {
+        // Combine caller's signal with a fresh per-attempt timeout
+        attemptSignal = AbortSignal.any([
+          callerSignal,
+          AbortSignal.timeout(PER_ATTEMPT_TIMEOUT_MS),
+        ]);
+      } else {
+        // Caller signal is dead/missing — use a standalone per-attempt timeout
+        attemptSignal = AbortSignal.timeout(PER_ATTEMPT_TIMEOUT_MS);
+      }
+    } catch {
+      // AbortSignal.any() not available in older Node — fallback to per-attempt timeout
+      attemptSignal = AbortSignal.timeout(PER_ATTEMPT_TIMEOUT_MS);
+    }
+
+    try {
+      const response = await fetch(url, { ...options, signal: attemptSignal });
       
-      // Specifically catch 429 Rate Limits and trigger backoff. 
+      // Specifically catch 429 Rate Limits and trigger aggressive backoff
       if (response.status === 429) {
-        console.warn(`\n  ⚠️  NVIDIA NIM API Rate Limit (429) Hit. Backing off for ${attempt * 3} seconds...`);
+        rateLimitHits++;
+        
+        // Respect Retry-After header if the server provides one
+        const retryAfter = response.headers.get('Retry-After');
+        let waitMs;
+        if (retryAfter) {
+          const retrySeconds = parseInt(retryAfter, 10);
+          waitMs = (isNaN(retrySeconds) ? attempt * 5 : retrySeconds) * 1000;
+        } else {
+          waitMs = 5000 * attempt; // 5s, 10s, 15s, 20s, 25s, 30s...
+        }
+        
+        console.warn(`\n  ⚠️  API Rate Limit (429) — attempt ${rateLimitHits}/${MAX_RATE_LIMIT_RETRIES}. Waiting ${(waitMs / 1000).toFixed(0)}s...`);
         lastError = new Error(`API error (429): Too Many Requests`);
-        await sleep(3000 * attempt);
+        
+        // Give up early on persistent rate limits — don't waste all retries
+        if (rateLimitHits >= MAX_RATE_LIMIT_RETRIES) {
+          throw new Error(`API rate limit (429) persists after ${rateLimitHits} attempts. Your API quota may be exhausted — wait a few minutes or check your plan at https://build.nvidia.com/`);
+        }
+        
+        await sleep(waitMs);
         continue;
       }
 
@@ -65,6 +111,9 @@ async function fetchWithRetry(url, options, maxRetries = 10) {
         console.error(`\n  ⚠️  Attempt ${attempt}/${maxRetries} failed (${response.status}). Retrying in ${attempt * 2}s...`);
       }
     } catch (e) {
+      // Re-throw rate limit exhaustion immediately
+      if (e.message?.includes('rate limit (429) persists')) throw e;
+      
       lastError = e;
       if (config.verbose || attempt >= maxRetries - 1) {
         let errorMsg = `\n  ⚠️  Attempt ${attempt}/${maxRetries} — network error: ${e.message}`;
@@ -131,7 +180,14 @@ export async function* streamChat(messages, tools = null, systemPrompt = null, s
 
   let response;
   try {
-    const fetchSignal = signal || AbortSignal.timeout(1800000); // 30 minute hard timeout
+    // CRITICAL FIX: If the caller's signal is already aborted (e.g., from a WebSocket disconnect),
+    // don't pass it in — create a fresh timeout so the request can actually succeed.
+    let fetchSignal;
+    if (signal && !signal.aborted) {
+      fetchSignal = signal;
+    } else {
+      fetchSignal = AbortSignal.timeout(1800000); // 30 minute hard timeout
+    }
     response = await fetchWithRetry(apiUrl, {
       method: 'POST',
       headers: getHeaders(),

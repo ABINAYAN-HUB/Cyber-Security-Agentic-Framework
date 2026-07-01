@@ -722,11 +722,10 @@ export async function startWebServer(options = {}) {
     });
 
     socket.on('disconnect', () => {
-      if (currentAbortController) {
-        currentAbortController.abort();
-        currentAbortController = null;
-      }
-      console.log(`[Web] Client disconnected: ${socket.id}`);
+      // CRITICAL FIX: Do NOT abort the running agent task on disconnect.
+      // A browser tab refresh, network hiccup, or sleep shouldn't kill a multi-hour pentest.
+      // The agent continues running in the background. Only explicit 'chat:abort' cancels it.
+      console.log(`[Web] Client disconnected: ${socket.id} (agent task continues in background)`);
     });
   });
 

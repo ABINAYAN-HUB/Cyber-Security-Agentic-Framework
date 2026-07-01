@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-4.0.0-red?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-4.1.0-red?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/kali_tools-150+-brightgreen?style=for-the-badge" alt="Tools">
   <img src="https://img.shields.io/badge/node-%3E%3D18-blue?style=for-the-badge" alt="Node">
   <img src="https://img.shields.io/badge/platform-Kali%20Linux-black?style=for-the-badge" alt="Platform">
@@ -26,7 +26,19 @@ Jarvis Cyber is a **fully autonomous AI cybersecurity agent** powered by NVIDIA 
 
 ---
 
-## ✨ What's New in v4.0
+## ✨ What's New in v4.1 — Reliability & Performance
+
+| Feature | Description |
+|---------|-------------|
+| 🧠 **Tiered Auto-Learning Scheduler** | Sources are now classified into **FAST** (4h), **DAILY** (24h), and **STATIC** (one-time) tiers. Exponential backoff on failures, concurrent fetching (3 at a time), and smart skip logic — no more redundant API calls every 30 minutes. |
+| 🔁 **Hardened API Retry Engine** | Per-attempt 2-minute timeouts via `AbortSignal.timeout`, `Retry-After` header support, rate-limit cap (6 attempts max), and abort-safe signal handling. Dead caller signals no longer kill retries. |
+| 🌐 **Persistent Agent on Disconnect** | Browser tab refreshes, network hiccups, or laptop sleep no longer kill running pentests. Only explicit `chat:abort` cancels the agent — long-running tasks survive WebSocket disconnects. |
+| ⏳ **Deferred Daemon Startup** | Auto-learning waits 2 minutes after daemon start to avoid burning API quota during rapid restarts or deploys. |
+| 🕐 **Relaxed Cron Intervals** | Heartbeat moved from every 30 min → every 1 hour. Learning cron from every 30 min → every 2 hours. Tiered scheduling handles actual source frequency internally. |
+| 🛡️ **Abort-Resilient Agent Loop** | Agent now catches `AbortError` and `operation was aborted` as network errors, triggering graceful retry instead of crashing the task. |
+
+<details>
+<summary><strong>v4.0 Features</strong></summary>
 
 | Feature | Description |
 |---------|-------------|
@@ -38,6 +50,8 @@ Jarvis Cyber is a **fully autonomous AI cybersecurity agent** powered by NVIDIA 
 | 💬 **Chat Sessions** | Persistent conversation history stored in SQLite. Switch between sessions, search past conversations, and resume where you left off — both in CLI and Web UI. |
 | 📝 **Skills Manager** | Load custom user-created skills from a `skills/` directory with YAML frontmatter and bundled scripts. |
 | 🎯 **Listener Manager** | Persistent TCP listener for catching reverse shells, with dynamic port conflict detection and interactive shell command execution. |
+
+</details>
 
 ---
 
@@ -489,6 +503,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <strong>🐉 Jarvis Cyber v4.0</strong><br>
+  <strong>🐉 Jarvis Cyber v4.1</strong><br>
   <em>Built by <a href="https://github.com/ABINAYAN-HUB">ABINAYAN</a></em>
 </p>

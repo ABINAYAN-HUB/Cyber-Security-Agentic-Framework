@@ -70,14 +70,17 @@ export class Daemon {
     console.log(`✅ Daemon running. Heartbeat: ${config.heartbeatCron}`);
     console.log(`📝 Add tasks to: ${config.heartbeatFile}`);
 
-    // ═══ INITIAL RUN: Auto-learn immediately on start ═══
+    // ═══ DEFERRED START: Wait 2 minutes before first auto-learn to avoid burning API quota on startup ═══
     if (config.learningEnabled) {
-      console.log('\n🚀 Running initial auto-learning cycle...');
-      try {
-        await autoLearner.run();
-      } catch (err) {
-        console.error(`⚠️ Initial auto-learning error: ${err.message}`);
-      }
+      console.log('\n⏳ First auto-learning cycle will run in 2 minutes (deferred to save API quota)...');
+      setTimeout(async () => {
+        console.log('\n🚀 Running initial auto-learning cycle (deferred)...');
+        try {
+          await autoLearner.run();
+        } catch (err) {
+          console.error(`⚠️ Initial auto-learning error: ${err.message}`);
+        }
+      }, 120000); // 2 minute delay
     }
 
     // Initial heartbeat

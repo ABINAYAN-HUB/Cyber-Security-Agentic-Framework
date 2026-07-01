@@ -87,7 +87,13 @@ export class Agent {
         ui.printError(`Agent error: ${error.message}`);
         
         // Persistent retry loop for network outages so the agent task doesn't just die
-        if (error.message.includes('NVIDIA NIM API') || error.message.includes('fetch failed') || error.message.includes('network error')) {
+        // CRITICAL FIX: Also catch abort errors (from WebSocket disconnect or timeout)
+        const isNetworkError = error.message.includes('NVIDIA NIM API') 
+          || error.message.includes('fetch failed') 
+          || error.message.includes('network error')
+          || error.message.includes('aborted')
+          || error.message.includes('operation was aborted');
+        if (isNetworkError) {
           this.networkRetryCount++;
           if (this.networkRetryCount > 10) {
             ui.printError('Network has been unreachable for 10+ consecutive retries. Stopping to avoid infinite loop.');

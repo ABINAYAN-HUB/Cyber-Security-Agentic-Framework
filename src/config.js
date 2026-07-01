@@ -87,11 +87,11 @@ const config = {
   memoryDbPath: join(dataDir, 'jarvis-memory.db'),
 
   // ═══ Heartbeat / Daemon ═══
-  heartbeatCron: process.env.HEARTBEAT_CRON || '*/30 * * * *',
+  heartbeatCron: process.env.HEARTBEAT_CRON || '0 * * * *',
   heartbeatFile: join(dataDir, 'HEARTBEAT.md'),
 
   // ═══ Auto-Learning (24/7 Continuous) ═══
-  learningCron: process.env.LEARNING_CRON || '*/30 * * * *', // Every 30 minutes — 24/7
+  learningCron: process.env.LEARNING_CRON || '0 */2 * * *', // Every 2 hours — tiered scheduling handles actual source frequency
   learningEnabled: process.env.LEARNING_ENABLED !== 'false',  // Enabled by default
 
   // ═══ Stealth Browser ═══
