@@ -4,6 +4,7 @@
 import { MITRE_ATTACK, CYBER_KILL_CHAIN, mapFindingsToTechniques, getCurrentKillChainPhase } from './frameworks.js';
 import { detectInstalledTools, getToolsForTechnique, searchTools } from './kali-tools-registry.js';
 import { memory } from './memory.js';
+import { bronGraph } from './bron-graph.js';
 
 class DynamicSkillEngine {
   constructor() {
@@ -130,6 +131,7 @@ class DynamicSkillEngine {
    * @returns {string}
    */
   getSkillsContext() {
+    const bronStatus = bronGraph.connected ? '✅ CONNECTED' : '⚠️ Not connected';
     return `\n\n## DYNAMIC SKILL ENGINE
 
 **Strategy Generation**: Jarvis generates attack strategies DYNAMICALLY based on:
@@ -138,8 +140,14 @@ class DynamicSkillEngine {
 - Cyber Kill Chain phase progression
 - Available tools on the system
 - Previous findings stored in memory
+- **BRON Knowledge Graph** (${bronStatus}) — Links ATT&CK ↔ CAPEC ↔ CWE ↔ CVE ↔ CPE ↔ D3FEND
 
 **NO HARDCODED PLAYBOOKS** — Every strategy is custom-built for the specific target and objective.
+
+**BRON-Enhanced Intelligence**:
+- When a CVE is discovered, BRON traces: CVE → CWE weakness → CAPEC attack pattern → ATT&CK technique → Tactic
+- D3FEND defensive techniques are recommended for every ATT&CK technique used
+- Product/CPE lookups reveal all known attack vectors for discovered software
 
 **Supported Objective Types**:
 - Full Penetration Test (recon → exploit → post-exploit → report)
@@ -160,7 +168,68 @@ class DynamicSkillEngine {
 - Adapt strategy based on WAF/firewall detection
 - Pivot approach when attacks are blocked
 - Cache successful strategies for future reference
+- **BRON graph enrichment** for every CVE finding
 `;
+  }
+
+  /**
+   * Generate a BRON-enriched strategy for known CVEs on a target
+   * @param {string} target - Target identifier
+   * @param {Array} cveList - List of CVE IDs found on the target
+   * @param {Object} context - Additional context
+   * @returns {Object} Enriched strategy with BRON attack chains
+   */
+  async generateGraphDrivenStrategy(target, cveList = [], context = {}) {
+    const installed = detectInstalledTools();
+    const enrichedCVEs = [];
+
+    // Enrich each CVE with BRON graph data
+    for (const cveId of cveList.slice(0, 20)) {
+      if (bronGraph.connected) {
+        const chain = await bronGraph.traverseFromCVE(cveId);
+        if (chain) {
+          enrichedCVEs.push({
+            cve_id: cveId,
+            severity: chain.cve?.severity || 'UNKNOWN',
+            cvss: chain.cve?.cvss || null,
+            weaknesses: chain.cwes?.map(c => c.id) || [],
+            attack_patterns: chain.capecs?.map(c => `${c.id}: ${c.name}`) || [],
+            techniques: chain.techniques?.map(t => `${t.id}: ${t.name}`) || [],
+            tactics: chain.tactics?.map(t => `${t.id}: ${t.name}`) || [],
+            defenses: chain.defenses?.map(d => d.name) || [],
+            affected_products: chain.cpes?.slice(0, 5).map(c => c.product || c.name) || [],
+          });
+        } else {
+          enrichedCVEs.push({ cve_id: cveId, severity: 'UNKNOWN', note: 'Not in BRON graph' });
+        }
+      }
+    }
+
+    // Sort by severity for prioritized attack strategy
+    const severityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
+    enrichedCVEs.sort((a, b) => (severityOrder[a.severity] || 4) - (severityOrder[b.severity] || 4));
+
+    // Map all techniques to available tools
+    const techniqueIds = enrichedCVEs.flatMap(c => c.techniques?.map(t => t.split(':')[0]) || []);
+    const toolMapping = {};
+    for (const techId of [...new Set(techniqueIds)]) {
+      const tools = getToolsForTechnique(techId);
+      toolMapping[techId] = tools?.filter(t => installed.has(t.name || t))?.map(t => t.name || t) || [];
+    }
+
+    const strategy = {
+      type: 'bron_enriched',
+      target,
+      cve_count: enrichedCVEs.length,
+      critical_count: enrichedCVEs.filter(c => c.severity === 'CRITICAL').length,
+      high_count: enrichedCVEs.filter(c => c.severity === 'HIGH').length,
+      enriched_cves: enrichedCVEs,
+      tool_mapping: toolMapping,
+      recommended_order: enrichedCVEs.map(c => c.cve_id),
+      timestamp: new Date().toISOString(),
+    };
+
+    return strategy;
   }
 
   /**

@@ -1,5 +1,5 @@
 // Jarvis Cyber — Configuration
-// Powered by NVIDIA NIM API — Z-AI GLM 5.1
+// Powered by NVIDIA NIM API — Nemotron 3 Super (120B)
 import dotenv from 'dotenv';
 import { join, dirname } from 'path';
 import { existsSync, mkdirSync } from 'fs';
@@ -8,7 +8,7 @@ import { homedir } from 'os';
 import dns from 'dns';
 
 // Force IPv4 resolution to prevent Node.js 'fetch failed' / ETIMEDOUT network outages
-try { dns.setDefaultResultOrder('ipv4first'); } catch (e) {}
+try { dns.setDefaultResultOrder('ipv4first'); } catch (e) { }
 
 // ═══ Resolve package directory (where cli.js lives) ═══
 const __filename = fileURLToPath(import.meta.url);
@@ -50,10 +50,19 @@ function parseAllowedIds(raw) {
 }
 
 const config = {
+  // ═══ Active Provider: 'nvidia' (Cloud) | 'local' (LM Studio, Ollama, Jan.ai) ═══
+  activeProvider: process.env.DEFAULT_PROVIDER || 'nvidia',
+
   // ═══ NVIDIA NIM API ═══
   baseUrl: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
   apiKey: process.env.NVIDIA_API_KEY || '',
-  model: process.env.NVIDIA_MODEL || 'z-ai/glm-5.1',
+  model: process.env.NVIDIA_MODEL || 'deepseek-ai/deepseek-v4-flash-0731',
+
+  // ═══ Local AI Server (LM Studio, Ollama, Jan.ai, etc.) ═══
+  localAiBackend: process.env.LOCAL_AI_BACKEND || 'lmstudio',
+  localAiBaseUrl: process.env.LOCAL_AI_BASE_URL || 'http://localhost:1234/v1',
+  localAiModel: process.env.LOCAL_AI_MODEL || '',
+  localAiApiKey: process.env.LOCAL_AI_API_KEY || 'none',
 
   // ═══ Generation Settings ═══
   temperature: 0.4,
@@ -105,6 +114,12 @@ const config = {
 
   // ═══ Dangerous Command Patterns (DISABLED — fully uncensored mode) ═══
   dangerousPatterns: [],
+
+  // ═══ BRON Knowledge Graph (ArangoDB) ═══
+  bronDbUrl: process.env.BRON_DB_URL || 'http://127.0.0.1:8529',
+  bronDbPassword: process.env.BRON_DB_PASSWORD || 'jarvis_bron_2024',
+  bronDbName: process.env.BRON_DB_NAME || 'bron',
+  bronEnabled: process.env.BRON_ENABLED !== 'false', // Enabled by default
 
   // ═══ History ═══
   maxHistoryMessages: 50,

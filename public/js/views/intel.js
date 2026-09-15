@@ -1,4 +1,5 @@
 // Jarvis Cyber — Threat Intelligence View
+// Enhanced: full CVE details, exploit name search, clickable CVE detail panel
 import { Chart } from '../components/chart.js';
 
 export class IntelView {
@@ -9,23 +10,29 @@ export class IntelView {
   async render(container) {
     container.innerHTML = '<div class="glass-panel"><div class="skeleton skeleton-card" style="height:200px;"></div></div>';
 
-    const [intel, learningStats, attackMemory] = await Promise.all([
+    const [intel, learningStats, attackMemory, bronStats] = await Promise.all([
       this.app.api('/threat-intel?limit=50'),
       this.app.api('/learning-stats'),
       this.app.api('/attack-memory-stats'),
+      this.app.api('/bron/stats').catch(() => ({ connected: false })),
     ]);
 
-    container.innerHTML = this.buildHTML(intel, learningStats, attackMemory);
+    container.innerHTML = this.buildHTML(intel, learningStats, attackMemory, bronStats);
     this.setupHandlers();
   }
 
-  teardown() {}
+  teardown() {
+    // Remove any open detail panel
+    const overlay = document.querySelector('.cve-detail-overlay');
+    if (overlay) overlay.remove();
+  }
 
-  buildHTML(intel, learningStats, attackMemory) {
+  buildHTML(intel, learningStats, attackMemory, bronStats) {
     const i = intel || {};
     const cves = i.cves || [];
     const ls = learningStats || [];
     const am = attackMemory || {};
+    const bron = bronStats || {};
 
     // Severity distribution
     const severityCounts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, UNKNOWN: 0 };
@@ -64,25 +71,27 @@ export class IntelView {
       learningHtml = '<div class="text-sm text-muted" style="padding:var(--sp-4);">No learning data. Run <code>jarvis --learn</code> or enable daemon mode.</div>';
     }
 
-    // CVE table
+    // CVE table — now with clickable rows and description preview
     let cveTableHtml = '';
     if (cves.length > 0) {
       cveTableHtml = `
         <table class="data-table">
           <thead>
-            <tr><th>CVE ID</th><th>Title</th><th>Severity</th><th>CVSS</th><th>Published</th></tr>
+            <tr><th>CVE ID</th><th>Title</th><th>Severity</th><th>CVSS</th><th>Published</th><th></th></tr>
           </thead>
           <tbody>
             ${cves.map(c => {
               const sev = (c.severity || 'info').toLowerCase();
               const sevClass = sev === 'critical' ? 'critical' : sev === 'high' ? 'high' : sev === 'medium' ? 'medium' : 'low';
+              const cveId = c.identifier || '';
               return `
-                <tr>
-                  <td><span class="text-mono text-cyan">${c.identifier || '—'}</span></td>
+                <tr class="cve-clickable-row" data-cve-id="${this._escapeAttr(cveId)}">
+                  <td><span class="text-mono text-cyan">${cveId || '—'}</span></td>
                   <td style="max-width:300px;" class="truncate">${c.title || '—'}</td>
                   <td><span class="badge ${sevClass}">${(c.severity || 'N/A').toUpperCase()}</span></td>
                   <td class="mono">${c.cvss_score ? c.cvss_score.toFixed(1) : '—'}</td>
                   <td class="mono text-muted">${c.published_at ? c.published_at.slice(0, 10) : '—'}</td>
+                  <td>${cveId ? '<button class="cve-view-btn">View Details</button>' : ''}</td>
                 </tr>
               `;
             }).join('')}
@@ -192,6 +201,9 @@ export class IntelView {
       <!-- Attack Memory Feedback Loop -->
       ${attackMemoryHtml}
 
+      <!-- BRON Knowledge Graph -->
+      ${this.buildBronPanel(bron)}
+
       <div class="grid-2 mb-6">
         <!-- Severity Distribution -->
         <div class="glass-panel glow-rose">
@@ -242,10 +254,78 @@ export class IntelView {
       <div class="glass-panel">
         <div class="panel-header">
           <span class="panel-title">🔒 Latest CVEs</span>
-          <span class="panel-subtitle">${cves.length} records</span>
+          <span class="panel-subtitle">${cves.length} records — click any CVE for full details</span>
         </div>
         <div class="scroll-container" style="max-height:500px;">
           ${cveTableHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  buildBronPanel(bron) {
+    const connected = bron && bron.connected;
+    const statusBadge = connected
+      ? '<span class="badge success" style="font-size:10px;">CONNECTED</span>'
+      : '<span class="badge" style="background:rgba(251,146,60,0.15);color:#fb923c;font-size:10px;">OFFLINE</span>';
+
+    // Node stats cards
+    const nodeTypes = [
+      { key: 'technique', label: 'ATT&CK Techniques', icon: '⚔️', color: '#f43f5e' },
+      { key: 'tactic', label: 'Tactics', icon: '🎯', color: '#8b5cf6' },
+      { key: 'capec', label: 'CAPEC Patterns', icon: '🗺️', color: '#f59e0b' },
+      { key: 'cwe', label: 'CWE Weaknesses', icon: '🔓', color: '#ef4444' },
+      { key: 'cve', label: 'CVE Vulns', icon: '🐛', color: '#ec4899' },
+      { key: 'cpe', label: 'CPE Products', icon: '💻', color: '#06b6d4' },
+      { key: 'd3fend', label: 'D3FEND Defenses', icon: '🛡️', color: '#10b981' },
+      { key: 'engage', label: 'Engage', icon: '🎣', color: '#a78bfa' },
+    ];
+
+    const statsHtml = connected ? `
+      <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: var(--sp-3);">
+        ${nodeTypes.map(nt => {
+          const count = bron.nodes?.[nt.key] || 0;
+          return `
+            <div style="text-align:center; padding: 8px; border-radius: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04);">
+              <div style="font-size: 16px;">${nt.icon}</div>
+              <div class="text-lg" style="font-weight:700; color:${nt.color};">${this.formatNumber(count)}</div>
+              <div class="text-xs text-muted">${nt.label}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      <div class="text-xs text-muted" style="margin-top: var(--sp-2); text-align: center;">
+        Total: ${this.formatNumber(bron.totalNodes || 0)} nodes, ${this.formatNumber(bron.totalEdges || 0)} edges
+      </div>
+    ` : `
+      <div class="text-sm text-muted" style="padding: var(--sp-4); text-align: center;">
+        <p>BRON Knowledge Graph is not connected.</p>
+        <p style="margin-top: 4px;">Start ArangoDB: <code>docker-compose -f docker-compose.bron.yml up -d</code></p>
+        <p style="margin-top: 2px;">Then load data: <code>node cli.js --update-bron</code></p>
+      </div>
+    `;
+
+    return `
+      <div class="glass-panel mb-6" style="border-color:rgba(16,185,129,0.2);">
+        <div class="panel-header">
+          <span class="panel-title">🔗 BRON Knowledge Graph</span>
+          <span class="panel-subtitle">${statusBadge}</span>
+        </div>
+        <div style="padding: var(--sp-3);">
+          <div class="text-sm text-muted" style="margin-bottom: var(--sp-2);">
+            Linked cybersecurity intelligence: ATT&CK ↔ CAPEC ↔ CWE ↔ CVE ↔ CPE ↔ D3FEND. Search by CVE ID, attack name (DDoS, SQL injection), technique ID, or product name.
+          </div>
+          ${statsHtml}
+          ${connected ? `
+            <div style="margin-top: var(--sp-3); display: flex; gap: 8px;">
+              <input type="text" class="input" id="bron-search-input" placeholder="Search: CVE-2021-44228, DDoS, SQL injection, firebase, T1190, apache..." style="flex:1;">
+              <button class="btn btn-primary" id="bron-search-btn">🔍 Search</button>
+            </div>
+            <div class="text-xs text-muted" style="margin-top: 4px;">
+              💡 Try: attack names (DDoS, XSS, buffer overflow), product names (apache, nginx, wordpress), CVE IDs, or technique IDs
+            </div>
+            <div id="bron-results" style="margin-top: var(--sp-3);"></div>
+          ` : ''}
         </div>
       </div>
     `;
@@ -283,7 +363,7 @@ export class IntelView {
         // Trigger learning
         await this.app.apiPost('/learn', {});
 
-        // Poll for completion — updated for 28+ sources
+        // Poll for completion
         const sources = [
           'NVD CVEs', 'CISA KEV', 'GitHub Advisories', 'EPSS Scores',
           'Exploit-DB', 'InTheWild Exploits', 'PacketStorm', 'Vulners',
@@ -315,7 +395,6 @@ export class IntelView {
                 const stats = status.stats || {};
                 statusEl.innerHTML = `<span class="badge success">✅ Done</span> CVEs: ${stats.cves || 0}, Exploits: ${stats.exploits || 0}, Threats: ${stats.threats || 0}`;
               }
-              // Auto-refresh the page after a brief delay
               setTimeout(() => {
                 const container = document.getElementById('page-content');
                 if (container) this.render(container);
@@ -326,6 +405,7 @@ export class IntelView {
       });
     }
 
+    // ═══ Intel Search (local DB) ═══
     const searchBtn = document.getElementById('intel-search-btn');
     const searchInput = document.getElementById('intel-search');
 
@@ -349,31 +429,531 @@ export class IntelView {
       ];
 
       if (allResults.length === 0) {
-        resultsEl.innerHTML = '<div class="text-sm text-muted">No results found.</div>';
+        resultsEl.innerHTML = '<div class="text-sm text-muted">No results found in local database.</div>';
         return;
       }
 
       resultsEl.innerHTML = `
         <div class="text-sm text-muted mb-4">${allResults.length} results</div>
         <table class="data-table">
-          <thead><tr><th>Type</th><th>ID</th><th>Title</th><th>Source</th><th>Severity</th></tr></thead>
+          <thead><tr><th>Type</th><th>ID</th><th>Title</th><th>Source</th><th>Severity</th><th></th></tr></thead>
           <tbody>
-            ${allResults.slice(0, 30).map(r => `
-              <tr>
+            ${allResults.slice(0, 30).map(r => {
+              const cveId = r.identifier || r.exploit_id || '';
+              const isCVE = cveId && /^CVE-/i.test(cveId);
+              return `
+              <tr class="${isCVE ? 'cve-clickable-row' : ''}" ${isCVE ? `data-cve-id="${this._escapeAttr(cveId)}"` : ''}>
                 <td><span class="badge ${r._type === 'exploit' ? 'danger' : 'info'}">${r._type}</span></td>
-                <td class="mono text-cyan">${r.identifier || r.exploit_id || '—'}</td>
+                <td class="mono text-cyan">${cveId || '—'}</td>
                 <td class="truncate" style="max-width:300px;">${r.title || '—'}</td>
                 <td class="text-sm text-muted">${r.source || '—'}</td>
                 <td>${r.severity ? `<span class="badge ${(r.severity || '').toLowerCase()}">${r.severity}</span>` : '—'}</td>
+                <td>${isCVE ? '<button class="cve-view-btn">Details</button>' : ''}</td>
               </tr>
-            `).join('')}
+            `;
+            }).join('')}
           </tbody>
         </table>
       `;
+
+      // Attach click handlers to new results
+      this._attachCVEClickHandlers(resultsEl);
     };
 
     searchBtn?.addEventListener('click', doSearch);
     searchInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+
+    // ═══ BRON Search Handlers (Smart Search) ═══
+    const bronSearchBtn = document.getElementById('bron-search-btn');
+    const bronSearchInput = document.getElementById('bron-search-input');
+
+    const doBronSearch = async () => {
+      const query = bronSearchInput?.value?.trim();
+      if (!query) return;
+      const resultsEl = document.getElementById('bron-results');
+      if (!resultsEl) return;
+
+      // Detect query type
+      const isCVE = /^CVE-\d{4}-\d+$/i.test(query);
+      const isNodeId = /^(TA\d+|T\d+|CAPEC-\d+|CWE-\d+|D3-|EAC\d+|SAC\d+)/i.test(query);
+
+      if (isCVE) {
+        // Direct CVE detail lookup
+        resultsEl.innerHTML = '<div class="flex items-center gap-2"><div class="spinner"></div><span class="text-sm text-muted">Loading CVE details...</span></div>';
+        this._openCVEDetail(query);
+        resultsEl.innerHTML = '';
+        return;
+      }
+
+      if (isNodeId) {
+        // Direct node lookup (technique, tactic, etc.)
+        resultsEl.innerHTML = '<div class="flex items-center gap-2"><div class="spinner"></div><span class="text-sm text-muted">Looking up node...</span></div>';
+        const node = await this.app.api(`/bron/node/${encodeURIComponent(query)}`);
+
+        if (node?.error || !node?.original_id) {
+          // Fall back to exploit search
+          await this._doExploitSearch(query, resultsEl);
+          return;
+        }
+
+        let html = `<div style="padding:12px; border-radius:8px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06);">`;
+        html += `<div style="font-weight:600; color:var(--text-primary); margin-bottom:8px;">${node.original_id} — ${node.name || ''}</div>`;
+        if (node.description) html += `<div class="text-sm text-muted" style="margin-bottom:8px;">${node.description.slice(0, 500)}</div>`;
+
+        const outbound = node.neighbors?.outbound || [];
+        const inbound = node.neighbors?.inbound || [];
+        if (outbound.length + inbound.length > 0) {
+          html += `<div class="text-sm" style="font-weight:600; margin-top:8px;">Connections (${outbound.length + inbound.length})</div>`;
+          html += '<div style="margin-top:4px; max-height:200px; overflow-y:auto;">';
+          for (const n of [...outbound, ...inbound].slice(0, 20)) {
+            const dir = n.direction === 'outbound' ? '→' : '←';
+            const isCveConn = n.id && /^CVE-/i.test(n.id);
+            html += `<div class="text-sm" style="padding:2px 0; ${isCveConn ? 'cursor:pointer;' : ''}" ${isCveConn ? `onclick="document.querySelector('.intel-view-instance')?.__openCVE?.('${this._escapeAttr(n.id)}')"` : ''}>`;
+            html += `<span class="text-muted">${dir}</span> <span class="mono text-cyan">${n.id}</span> <span class="text-muted">${n.name || ''}</span>`;
+            if (isCveConn) html += ' <span class="cve-view-btn" style="font-size:0.65rem;">View</span>';
+            html += `</div>`;
+          }
+          html += '</div>';
+        }
+        html += '</div>';
+        resultsEl.innerHTML = html;
+        return;
+      }
+
+      // Free-text search → exploit/attack name search
+      await this._doExploitSearch(query, resultsEl);
+    };
+
+    bronSearchBtn?.addEventListener('click', doBronSearch);
+    bronSearchInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') doBronSearch(); });
+
+    // ═══ Clickable CVE rows in the main table ═══
+    this._attachCVEClickHandlers(document);
+  }
+
+  // ═══════════════════════════════════════════════
+  // EXPLOIT NAME SEARCH
+  // ═══════════════════════════════════════════════
+
+  async _doExploitSearch(query, resultsEl) {
+    resultsEl.innerHTML = '<div class="flex items-center gap-2"><div class="spinner"></div><span class="text-sm text-muted">Searching BRON graph, local DB, and NVD API...</span></div>';
+
+    const data = await this.app.api(`/bron/exploit-search?q=${encodeURIComponent(query)}`);
+
+    if (!data || data.error) {
+      resultsEl.innerHTML = `<div class="text-sm text-muted">Search error: ${data?.error || 'Unknown error'}</div>`;
+      return;
+    }
+
+    const { capecs = [], techniques = [], cwes = [], cves = [], localExploits = [], totalCVEs = 0, nvdFetched = false } = data;
+    const hasResults = capecs.length + techniques.length + cwes.length + cves.length + localExploits.length > 0;
+
+    if (!hasResults) {
+      resultsEl.innerHTML = `
+        <div style="padding:var(--sp-4); text-align:center;">
+          <div class="text-sm text-muted" style="margin-bottom:8px;">No results found for "<strong>${this._escapeHtml(query)}</strong>"</div>
+          <div class="text-xs text-muted">Try different terms like: DDoS, XSS, SQL injection, buffer overflow, remote code execution, apache, nginx, wordpress</div>
+        </div>`;
+      return;
+    }
+
+    let html = '<div class="exploit-search-results">';
+
+    // Summary with NVD badge
+    const nvdBadge = nvdFetched ? ' <span class="badge" style="background:rgba(0,240,255,0.12);color:var(--cyan);font-size:9px;">🌐 NVD Live</span>' : '';
+    html += `<div class="text-sm text-muted">Found: ${techniques.length} techniques, ${capecs.length} attack patterns, ${cwes.length} weaknesses, ${cves.length} CVEs${totalCVEs > cves.length ? ` (showing ${cves.length} of ${totalCVEs})` : ''}${localExploits.length ? `, ${localExploits.length} exploits` : ''}${nvdBadge}</div>`;
+
+    // ATT&CK Techniques
+    if (techniques.length > 0) {
+      html += `<div class="exploit-search-group">
+        <div class="exploit-search-group-header">
+          <span>⚔️ ATT&CK Techniques</span>
+          <span class="exploit-search-group-count">${techniques.length}</span>
+        </div>
+        <div style="padding: var(--sp-3);">
+          ${techniques.map(t => `
+            <div style="padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.03);">
+              <span class="mono text-cyan" style="font-weight:600;">${t.id}</span> — <span class="text-sm">${t.name}</span>
+              ${t.description ? `<div class="text-xs text-muted" style="margin-top:2px; max-height:40px; overflow:hidden;">${t.description.slice(0, 200)}</div>` : ''}
+              ${t.platforms?.length ? `<div style="margin-top:3px;">${t.platforms.slice(0, 5).map(p => `<span class="tag" style="margin-right:3px;">${p}</span>`).join('')}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+
+    // CAPEC Attack Patterns
+    if (capecs.length > 0) {
+      html += `<div class="exploit-search-group">
+        <div class="exploit-search-group-header">
+          <span>🗺️ CAPEC Attack Patterns</span>
+          <span class="exploit-search-group-count">${capecs.length}</span>
+        </div>
+        <div style="padding: var(--sp-3);">
+          ${capecs.map(c => `
+            <div style="padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.03);">
+              <span class="mono" style="color:#f59e0b; font-weight:600;">${c.id}</span> — <span class="text-sm">${c.name}</span>
+              ${c.severity ? ` <span class="badge" style="font-size:9px;">${c.severity}</span>` : ''}
+              ${c.description ? `<div class="text-xs text-muted" style="margin-top:2px; max-height:40px; overflow:hidden;">${c.description.slice(0, 250)}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+
+    // CWE Weaknesses
+    if (cwes.length > 0) {
+      html += `<div class="exploit-search-group">
+        <div class="exploit-search-group-header">
+          <span>🔓 CWE Weaknesses</span>
+          <span class="exploit-search-group-count">${cwes.length}</span>
+        </div>
+        <div style="padding: var(--sp-3);">
+          ${cwes.map(c => `
+            <div style="padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.03);">
+              <span class="mono" style="color:#ef4444; font-weight:600;">${c.id}</span> — <span class="text-sm">${c.name}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+
+    // Related CVEs
+    if (cves.length > 0) {
+      html += `<div class="exploit-search-group">
+        <div class="exploit-search-group-header">
+          <span>🐛 Related CVEs</span>
+          <span class="exploit-search-group-count">${cves.length}${totalCVEs > cves.length ? ` / ${totalCVEs}` : ''}</span>
+        </div>
+        <div style="padding: 0;">
+          <table class="data-table" style="margin:0;">
+            <thead><tr><th>CVE ID</th><th>Description</th><th>Severity</th><th>CVSS</th><th></th></tr></thead>
+            <tbody>
+              ${cves.slice(0, 30).map(c => {
+                const sevClass = (c.severity || '').toLowerCase();
+                return `
+                <tr class="cve-clickable-row" data-cve-id="${this._escapeAttr(c.cve_id || '')}">
+                  <td class="mono text-cyan" style="white-space:nowrap;">${c.cve_id || '—'}</td>
+                  <td class="text-sm" style="max-width:300px;"><div class="truncate">${c.description ? c.description.slice(0, 150) : '—'}</div></td>
+                  <td>${c.severity ? `<span class="badge ${sevClass}">${c.severity}</span>` : '—'}</td>
+                  <td class="mono">${c.cvss ? Number(c.cvss).toFixed(1) : '—'}</td>
+                  <td><button class="cve-view-btn">Details</button></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    }
+
+    // Local Exploits
+    if (localExploits.length > 0) {
+      html += `<div class="exploit-search-group">
+        <div class="exploit-search-group-header">
+          <span>💀 Known Exploits</span>
+          <span class="exploit-search-group-count">${localExploits.length}</span>
+        </div>
+        <div style="padding: var(--sp-3);">
+          ${localExploits.slice(0, 15).map(e => `
+            <div style="padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.03);">
+              <span class="mono text-rose" style="font-weight:600;">${e.exploit_id || '—'}</span>
+              <span class="text-sm"> — ${e.title || '—'}</span>
+              ${e.platform ? ` <span class="tag">${e.platform}</span>` : ''}
+              ${e.cve_ids ? ` <span class="text-xs text-muted">${e.cve_ids}</span>` : ''}
+              ${e.description ? `<div class="text-xs text-muted" style="margin-top:2px; max-height:30px; overflow:hidden;">${e.description.slice(0, 150)}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+
+    html += '</div>';
+    resultsEl.innerHTML = html;
+
+    // Attach CVE click handlers to new results
+    this._attachCVEClickHandlers(resultsEl);
+  }
+
+  // ═══════════════════════════════════════════════
+  // CVE DETAIL PANEL
+  // ═══════════════════════════════════════════════
+
+  _attachCVEClickHandlers(container) {
+    const rows = container.querySelectorAll('.cve-clickable-row');
+    rows.forEach(row => {
+      row.addEventListener('click', (e) => {
+        // Don't trigger if clicking an actual link
+        if (e.target.tagName === 'A') return;
+        const cveId = row.dataset.cveId;
+        if (cveId) this._openCVEDetail(cveId);
+      });
+    });
+  }
+
+  async _openCVEDetail(cveId) {
+    // Remove existing overlay
+    const existing = document.querySelector('.cve-detail-overlay');
+    if (existing) existing.remove();
+
+    // Create overlay + panel with loading state
+    const overlay = document.createElement('div');
+    overlay.className = 'cve-detail-overlay';
+    overlay.innerHTML = `
+      <div class="cve-detail-panel">
+        <div class="cve-detail-header">
+          <div class="cve-detail-header-info">
+            <div class="cve-detail-id">${this._escapeHtml(cveId)}</div>
+            <div class="text-sm text-muted">Loading details...</div>
+          </div>
+          <button class="cve-detail-close" id="cve-detail-close">✕</button>
+        </div>
+        <div class="cve-detail-loading">
+          <div class="skeleton-line" style="width:100%;height:20px;"></div>
+          <div class="skeleton-line" style="width:80%;height:14px;"></div>
+          <div class="skeleton-line" style="width:60%;height:14px;"></div>
+          <div class="skeleton-line" style="width:90%;height:80px;"></div>
+          <div class="skeleton-line" style="width:70%;height:14px;"></div>
+          <div class="skeleton-line" style="width:50%;height:14px;"></div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // Close handlers
+    const closePanel = () => overlay.remove();
+    overlay.querySelector('#cve-detail-close').addEventListener('click', closePanel);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) closePanel();
+    });
+    document.addEventListener('keydown', function escHandler(e) {
+      if (e.key === 'Escape') {
+        closePanel();
+        document.removeEventListener('keydown', escHandler);
+      }
+    });
+
+    // Fetch detailed CVE data
+    const data = await this.app.api(`/bron/cve/${encodeURIComponent(cveId)}`);
+
+    if (!data || data.error) {
+      const panel = overlay.querySelector('.cve-detail-panel');
+      panel.innerHTML = `
+        <div class="cve-detail-header">
+          <div class="cve-detail-header-info">
+            <div class="cve-detail-id">${this._escapeHtml(cveId)}</div>
+            <div class="text-sm text-muted">Not found in BRON graph or local database</div>
+          </div>
+          <button class="cve-detail-close" onclick="this.closest('.cve-detail-overlay').remove()">✕</button>
+        </div>
+        <div class="cve-detail-body">
+          <div class="cve-detail-section">
+            <div class="cve-detail-section-header">ℹ️ Info</div>
+            <div class="cve-detail-section-body">
+              <p class="text-sm text-muted">This CVE was not found in the BRON knowledge graph or local database. You may need to:</p>
+              <ul style="margin-top:8px; padding-left:20px; color:var(--text-muted); font-size:0.82rem; line-height:1.6;">
+                <li>Run <code>node cli.js --update-bron</code> to refresh BRON data</li>
+                <li>Run auto-learning to fetch latest CVEs from NVD</li>
+                <li>This CVE may be too new or not yet in public databases</li>
+              </ul>
+              <a href="https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cveId)}" target="_blank" class="cve-external-link" style="margin-top:12px;">🔗 Check on NVD →</a>
+            </div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    // Render full detail panel
+    this._renderCVEDetailPanel(overlay, data);
+  }
+
+  _renderCVEDetailPanel(overlay, data) {
+    const cve = data.cve || {};
+    const cwes = data.cwes || [];
+    const capecs = data.capecs || [];
+    const techniques = data.techniques || [];
+    const tactics = data.tactics || [];
+    const defenses = data.defenses || [];
+    const cpes = data.cpes || [];
+
+    // CVSS color
+    const cvss = cve.cvss || 0;
+    const sevColor = this._getSeverityColor(cve.severity);
+    const circumference = 2 * Math.PI * 34;
+    const dashOffset = circumference - (cvss / 10) * circumference;
+
+    const panel = overlay.querySelector('.cve-detail-panel');
+    panel.innerHTML = `
+      <div class="cve-detail-header">
+        <div class="cve-detail-header-info">
+          <div class="cve-detail-id">${this._escapeHtml(cve.id || '')}</div>
+          <div class="flex items-center gap-2" style="margin-top:4px;">
+            <span class="badge" style="background:${sevColor}22;color:${sevColor};font-size:11px;">${(cve.severity || 'UNKNOWN').toUpperCase()}</span>
+            ${cve.published ? `<span class="text-xs text-muted">Published: ${cve.published.slice(0, 10)}</span>` : ''}
+            ${data.source === 'local_db' ? '<span class="tag" style="font-size:0.65rem;">Local DB</span>' : ''}
+            ${data.source === 'nvd_live' ? '<span class="badge" style="background:rgba(0,240,255,0.12);color:var(--cyan);font-size:9px;">🌐 NVD Live</span>' : ''}
+          </div>
+        </div>
+        <button class="cve-detail-close" onclick="this.closest('.cve-detail-overlay').remove()">✕</button>
+      </div>
+
+      <div class="cve-detail-body">
+        <!-- CVSS Gauge -->
+        <div class="cvss-gauge-container">
+          <div class="cvss-gauge">
+            <svg viewBox="0 0 80 80">
+              <circle class="cvss-gauge-bg" cx="40" cy="40" r="34"></circle>
+              <circle class="cvss-gauge-fill" cx="40" cy="40" r="34"
+                stroke="${sevColor}"
+                stroke-dasharray="${circumference}"
+                stroke-dashoffset="${dashOffset}">
+              </circle>
+            </svg>
+            <div class="cvss-gauge-value" style="color:${sevColor};">${cvss ? cvss.toFixed(1) : 'N/A'}</div>
+          </div>
+          <div class="cvss-gauge-meta">
+            <div class="severity-label" style="color:${sevColor};">${(cve.severity || 'UNKNOWN').toUpperCase()}</div>
+            <div class="text-sm text-muted">CVSS Base Score</div>
+            ${cve.published ? `<div class="published-date">📅 ${cve.published.slice(0, 10)}</div>` : ''}
+          </div>
+          <a href="https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve.id || '')}" target="_blank" class="cve-external-link" style="margin-left:auto;">🔗 NVD</a>
+        </div>
+
+        <!-- Description -->
+        <div class="cve-detail-section">
+          <div class="cve-detail-section-header">📋 Description</div>
+          <div class="cve-detail-section-body">
+            <div class="cve-detail-description">
+              ${cve.description ? this._escapeHtml(cve.description) : '<span class="text-muted">No description available.</span>'}
+            </div>
+          </div>
+        </div>
+
+        <!-- How the Exploit Works (CAPEC) -->
+        ${capecs.length > 0 ? `
+          <div class="cve-detail-section" style="border-color:rgba(245,158,11,0.2);">
+            <div class="cve-detail-section-header" style="color:#f59e0b;">⚡ How This Exploit Works</div>
+            <div class="cve-detail-section-body">
+              ${capecs.map(c => `
+                <div style="margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.04);">
+                  <div style="font-weight:600; font-size:0.85rem;">
+                    <span class="mono" style="color:#f59e0b;">${c.id}</span> — ${this._escapeHtml(c.name || '')}
+                  </div>
+                  ${c.severity ? `<span class="badge" style="font-size:9px; margin-top:4px;">${c.severity}</span>` : ''}
+                  ${c.likelihood ? ` <span class="text-xs text-muted">Likelihood: ${c.likelihood}</span>` : ''}
+                  ${c.description ? `<div class="text-sm text-muted" style="margin-top:6px; line-height:1.6;">${this._escapeHtml(c.description.slice(0, 600))}</div>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Attack Chain -->
+        ${(cwes.length + techniques.length + tactics.length) > 0 ? `
+          <div class="cve-detail-section" style="border-color:rgba(244,63,94,0.2);">
+            <div class="cve-detail-section-header" style="color:#f43f5e;">⛓️ Attack Chain</div>
+            <div class="cve-detail-section-body">
+              <div class="cve-attack-chain">
+                ${cwes.map(cwe => `
+                  <div class="cve-chain-node node-cwe">
+                    <div class="cve-chain-node-inner">
+                      <div class="cve-chain-type" style="color:#ef4444;">🔓 CWE (Weakness)</div>
+                      <div class="cve-chain-id">${cwe.id}</div>
+                      <div class="cve-chain-name">${this._escapeHtml(cwe.name || '')}</div>
+                      ${cwe.description && cwe.description !== cwe.name ? `<div class="cve-chain-desc">${this._escapeHtml(cwe.description.slice(0, 200))}</div>` : ''}
+                    </div>
+                  </div>
+                `).join('')}
+
+                ${techniques.map(tech => `
+                  <div class="cve-chain-node node-technique">
+                    <div class="cve-chain-node-inner">
+                      <div class="cve-chain-type" style="color:#f43f5e;">⚔️ ATT&CK Technique</div>
+                      <div class="cve-chain-id">${tech.id}</div>
+                      <div class="cve-chain-name">${this._escapeHtml(tech.name || '')}</div>
+                      ${tech.description ? `<div class="cve-chain-desc">${this._escapeHtml(tech.description.slice(0, 200))}</div>` : ''}
+                      ${tech.platforms?.length ? `<div style="margin-top:4px;">${tech.platforms.slice(0, 4).map(p => `<span class="tag" style="font-size:0.6rem;">${p}</span>`).join(' ')}</div>` : ''}
+                    </div>
+                  </div>
+                `).join('')}
+
+                ${tactics.map(tactic => `
+                  <div class="cve-chain-node node-tactic">
+                    <div class="cve-chain-node-inner">
+                      <div class="cve-chain-type" style="color:#8b5cf6;">🎯 Tactic (Goal)</div>
+                      <div class="cve-chain-id">${tactic.id}</div>
+                      <div class="cve-chain-name">${this._escapeHtml(tactic.name || '')}</div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Recommended Defenses -->
+        ${defenses.length > 0 ? `
+          <div class="cve-detail-section" style="border-color:rgba(16,185,129,0.2);">
+            <div class="cve-detail-section-header" style="color:#10b981;">🛡️ Recommended Defenses (D3FEND)</div>
+            <div class="cve-detail-section-body">
+              <div class="cve-defense-grid">
+                ${defenses.map(d => `
+                  <div class="cve-defense-card">
+                    <div class="cve-defense-name">🛡️ ${this._escapeHtml(d.name || d.id || '')}</div>
+                    ${d.description ? `<div class="cve-defense-desc">${this._escapeHtml(d.description)}</div>` : ''}
+                    ${d.category ? `<div class="cve-defense-category">${d.category}</div>` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Affected Products -->
+        ${cpes.length > 0 ? `
+          <div class="cve-detail-section" style="border-color:rgba(6,182,212,0.2);">
+            <div class="cve-detail-section-header" style="color:#06b6d4;">💻 Affected Products (${cpes.length})</div>
+            <div class="cve-detail-section-body">
+              <div class="cve-product-list">
+                ${cpes.slice(0, 15).map(cpe => `
+                  <div class="cve-product-item">
+                    <span>📦</span>
+                    ${cpe.vendor ? `<span class="vendor">${this._escapeHtml(cpe.vendor)}</span>` : ''}
+                    ${cpe.product ? `<span>${this._escapeHtml(cpe.product)}</span>` : ''}
+                    ${cpe.version && cpe.version !== '*' ? `<span class="version">v${this._escapeHtml(cpe.version)}</span>` : ''}
+                  </div>
+                `).join('')}
+                ${cpes.length > 15 ? `<div class="text-xs text-muted" style="padding:4px;">+${cpes.length - 15} more products</div>` : ''}
+              </div>
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  // ═══════════════════════════════════════════════
+  // HELPERS
+  // ═══════════════════════════════════════════════
+
+  _getSeverityColor(severity) {
+    const s = (severity || '').toUpperCase();
+    if (s === 'CRITICAL') return '#f43f5e';
+    if (s === 'HIGH') return '#f59e0b';
+    if (s === 'MEDIUM') return '#8b5cf6';
+    if (s === 'LOW') return '#10b981';
+    return '#6b7280';
+  }
+
+  _escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  _escapeAttr(str) {
+    if (!str) return '';
+    return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
   }
 
   formatNumber(n) {

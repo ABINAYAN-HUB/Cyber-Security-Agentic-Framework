@@ -17,13 +17,90 @@ import { reportEngine } from './report-engine.js';
 import { dynamicSkills } from './dynamic-skills.js';
 import { toolDefinitions } from './tools/index.js';
 import { detectInstalledTools, getAllTools, getCategories } from './kali-tools-registry.js';
-import { checkServer } from './api.js';
+import { checkServer, getActiveModel, getActiveProviderName, VERIFIED_NVIDIA_MODELS } from './api.js';
 import { MITRE_ATTACK, CYBER_KILL_CHAIN } from './frameworks.js';
 import { autoLearner } from './auto-learner.js';
 import { toolInstaller } from './tool-installer.js';
+import { bronGraph } from './bron-graph.js';
+import { bootstrapBRON } from './bron-bootstrap.js';
+import { exec as _exec } from 'child_process';
+import { promisify } from 'util';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const execAsync = promisify(_exec);
+
+// ═══════════════════════════════════════════════════════════
+// BRON AUTO-START — Ensures ArangoDB + Data are ready
+// ═══════════════════════════════════════════════════════════
+
+async function _autostartBRON() {
+  console.log('\n  🔗 [BRON] Initializing knowledge graph...');
+
+  // Step 1: Check if ArangoDB is already reachable
+  let connected = await bronGraph.init();
+
+  if (!connected) {
+    // Step 2: Try to start ArangoDB via Docker
+    console.log('  📦 [BRON] ArangoDB not running — starting Docker container...');
+    try {
+      // Check if container already exists (stopped)
+      const { stdout: existing } = await execAsync('docker ps -a --filter name=jarvis-brondb --format "{{.Status}}" 2>&1').catch(() => ({ stdout: '' }));
+
+      if (existing.trim()) {
+        // Container exists — just start it
+        await execAsync('docker start jarvis-brondb 2>&1');
+      } else {
+        // Create new container with docker run
+        const password = config.bronDbPassword || 'jarvis_bron_2024';
+        const port = config.bronDbUrl?.match(/:(\d+)/)?.[1] || '8529';
+        await execAsync(
+          `docker run -d --name jarvis-brondb --restart unless-stopped ` +
+          `-e ARANGO_ROOT_PASSWORD=${password} ` +
+          `-p ${port}:8529 ` +
+          `--memory=512m ` +
+          `arangodb:3.12 2>&1`
+        );
+      }
+      console.log('  ⏳ [BRON] Waiting for ArangoDB to become healthy...');
+
+      // Wait for ArangoDB to become ready (up to 30s)
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        connected = await bronGraph.init().catch(() => false);
+        if (connected) break;
+      }
+
+      if (connected) {
+        console.log('  ✅ [BRON] ArangoDB is running');
+      } else {
+        console.error('  ⚠️ [BRON] ArangoDB failed to start. BRON features will be unavailable.');
+        console.error('  💡 Fix: Install Docker and run: docker-compose -f docker-compose.bron.yml up -d');
+        return;
+      }
+    } catch (err) {
+      console.error(`  ⚠️ [BRON] Docker start failed: ${err.message}`);
+      console.error('  💡 Fix: Install Docker and run: docker-compose -f docker-compose.bron.yml up -d');
+      return;
+    }
+  } else {
+    console.log('  ✅ [BRON] ArangoDB connected');
+  }
+
+  // Step 3: Check if data is loaded, bootstrap if empty
+  const hasData = await bronGraph.hasData();
+  if (!hasData) {
+    console.log('  📥 [BRON] No data found — running initial bootstrap (this takes ~1-2 min)...');
+    try {
+      await bootstrapBRON();
+    } catch (err) {
+      console.error(`  ⚠️ [BRON] Bootstrap error: ${err.message}`);
+    }
+  } else {
+    const stats = await bronGraph.getStats();
+    console.log(`  ✅ [BRON] Graph loaded: ${stats.totalNodes} nodes, ${stats.totalEdges} edges`);
+  }
+}
 
 /**
  * Start the web UI server
@@ -37,6 +114,11 @@ export async function startWebServer(options = {}) {
     memory.init();
   } catch (err) {
     console.error(`[Web] Memory init warning: ${err.message}`);
+  }
+
+  // ═══ AUTO-START BRON (ArangoDB + Bootstrap) ═══
+  if (config.bronEnabled) {
+    await _autostartBRON();
   }
 
   // Create the shared agent instance
@@ -208,7 +290,7 @@ export async function startWebServer(options = {}) {
         const results = memory.db.prepare('SELECT * FROM targets ORDER BY created_at DESC').all();
         res.json({
           results: results.map(r => {
-            try { r.data = JSON.parse(r.data); } catch {}
+            try { r.data = JSON.parse(r.data); } catch { }
             return r;
           })
         });
@@ -223,7 +305,7 @@ export async function startWebServer(options = {}) {
     try {
       const { target } = req.query;
       const results = memory.getLoot(target || null).map(r => {
-        try { r.data = JSON.parse(r.data); } catch {}
+        try { r.data = JSON.parse(r.data); } catch { }
         return r;
       });
       res.json({ results });
@@ -263,6 +345,355 @@ export async function startWebServer(options = {}) {
     });
   });
 
+  // ═══════════════════════════════════════════
+  // NVD API HELPERS (Live fallback when BRON has no data)
+  // ═══════════════════════════════════════════
+
+  /**
+   * Search NVD API by keyword — returns CVEs matching the search term
+   * Used as fallback when BRON graph + local DB have no results
+   */
+  async function _searchNVDByKeyword(keyword) {
+    try {
+      const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(keyword)}&resultsPerPage=25`;
+      const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!response.ok) return [];
+      const data = await response.json();
+      if (!data?.vulnerabilities) return [];
+
+      return data.vulnerabilities.map(item => {
+        const cve = item.cve;
+        if (!cve?.id) return null;
+
+        const desc = cve.descriptions?.find(d => d.lang === 'en')?.value || '';
+        let cvssScore = null;
+        let severity = 'UNKNOWN';
+        const metrics = cve.metrics;
+        if (metrics?.cvssMetricV31?.[0]) {
+          cvssScore = metrics.cvssMetricV31[0].cvssData?.baseScore;
+          severity = metrics.cvssMetricV31[0].cvssData?.baseSeverity || 'UNKNOWN';
+        } else if (metrics?.cvssMetricV2?.[0]) {
+          cvssScore = metrics.cvssMetricV2[0].cvssData?.baseScore;
+          severity = cvssScore >= 9 ? 'CRITICAL' : cvssScore >= 7 ? 'HIGH' : cvssScore >= 4 ? 'MEDIUM' : 'LOW';
+        }
+
+        // Extract CWE IDs
+        const cweIds = [];
+        for (const w of cve.weaknesses || []) {
+          for (const d of w.description || []) {
+            if (d.value?.startsWith('CWE-')) cweIds.push(d.value);
+          }
+        }
+
+        // Extract affected products
+        const products = [];
+        for (const cfg of cve.configurations || []) {
+          for (const node of cfg.nodes || []) {
+            for (const match of node.cpeMatch || []) {
+              if (match.criteria) {
+                const parts = match.criteria.split(':');
+                if (parts.length >= 5) {
+                  products.push({
+                    vendor: parts[3] || '',
+                    product: parts[4] || '',
+                    version: parts[5] || '*',
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        return {
+          cve_id: cve.id,
+          name: cve.id,
+          description: desc,
+          severity,
+          cvss: cvssScore,
+          published: cve.published,
+          source: 'nvd_live',
+          cwes: cweIds,
+          products: products.slice(0, 10),
+        };
+      }).filter(Boolean);
+    } catch (err) {
+      console.error(`  ⚠️ [NVD] Live keyword search failed: ${err.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch a single CVE by ID from NVD API
+   * Used as fallback when BRON + local DB don't have the CVE
+   */
+  async function _fetchCVEFromNVD(cveId) {
+    try {
+      const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=${encodeURIComponent(cveId)}`;
+      const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (!data?.vulnerabilities?.[0]) return null;
+
+      const cve = data.vulnerabilities[0].cve;
+      const desc = cve.descriptions?.find(d => d.lang === 'en')?.value || '';
+      let cvssScore = null;
+      let severity = 'UNKNOWN';
+      const metrics = cve.metrics;
+      if (metrics?.cvssMetricV31?.[0]) {
+        cvssScore = metrics.cvssMetricV31[0].cvssData?.baseScore;
+        severity = metrics.cvssMetricV31[0].cvssData?.baseSeverity || 'UNKNOWN';
+      } else if (metrics?.cvssMetricV2?.[0]) {
+        cvssScore = metrics.cvssMetricV2[0].cvssData?.baseScore;
+        severity = cvssScore >= 9 ? 'CRITICAL' : cvssScore >= 7 ? 'HIGH' : cvssScore >= 4 ? 'MEDIUM' : 'LOW';
+      }
+
+      // Extract CWEs
+      const cwes = [];
+      for (const w of cve.weaknesses || []) {
+        for (const d of w.description || []) {
+          if (d.value?.startsWith('CWE-')) {
+            cwes.push({ id: d.value, name: d.value, description: '' });
+          }
+        }
+      }
+
+      // Extract affected products
+      const cpes = [];
+      for (const cfg of cve.configurations || []) {
+        for (const node of cfg.nodes || []) {
+          for (const match of node.cpeMatch || []) {
+            if (match.criteria) {
+              const parts = match.criteria.split(':');
+              if (parts.length >= 5) {
+                cpes.push({
+                  id: match.criteria,
+                  name: match.criteria,
+                  vendor: parts[3] || '',
+                  product: parts[4] || '',
+                  version: parts[5] || '*',
+                });
+              }
+            }
+          }
+        }
+      }
+
+      return {
+        cve: {
+          id: cve.id,
+          name: cve.id,
+          description: desc,
+          severity,
+          cvss: cvssScore,
+          published: cve.published,
+        },
+        cwes,
+        cpes: cpes.slice(0, 20),
+        capecs: [],
+        techniques: [],
+        tactics: [],
+        defenses: [],
+        source: 'nvd_live',
+      };
+    } catch (err) {
+      console.error(`  ⚠️ [NVD] Live CVE fetch failed for ${cveId}: ${err.message}`);
+      return null;
+    }
+  }
+
+  // ═══════════════════════════════════════════
+  // BRON KNOWLEDGE GRAPH API
+  // ═══════════════════════════════════════════
+
+  // BRON graph stats
+  app.get('/api/bron/stats', async (req, res) => {
+    try {
+      if (!bronGraph.connected) {
+        await bronGraph.init();
+      }
+      const stats = await bronGraph.getStats();
+      res.json(stats);
+    } catch (err) {
+      res.json({ connected: false, error: err.message });
+    }
+  });
+
+  // BRON node lookup
+  app.get('/api/bron/node/:id', async (req, res) => {
+    try {
+      if (!bronGraph.connected) await bronGraph.init();
+      const node = await bronGraph.getNode(req.params.id);
+      res.json(node || { error: 'Node not found' });
+    } catch (err) {
+      res.json({ error: err.message });
+    }
+  });
+
+  // BRON attack chain (CVE traversal)
+  app.get('/api/bron/chain/:cveId', async (req, res) => {
+    try {
+      if (!bronGraph.connected) await bronGraph.init();
+      const chain = await bronGraph.traverseFromCVE(req.params.cveId);
+      res.json(chain || { error: 'CVE not found' });
+    } catch (err) {
+      res.json({ error: err.message });
+    }
+  });
+
+  // BRON defenses for ATT&CK technique
+  app.get('/api/bron/defenses/:techniqueId', async (req, res) => {
+    try {
+      if (!bronGraph.connected) await bronGraph.init();
+      const defenses = await bronGraph.getDefensesForTechnique(req.params.techniqueId);
+      res.json({ technique: req.params.techniqueId, defenses });
+    } catch (err) {
+      res.json({ error: err.message });
+    }
+  });
+
+  // BRON product risks
+  app.get('/api/bron/product-risks', async (req, res) => {
+    try {
+      if (!bronGraph.connected) await bronGraph.init();
+      const { q } = req.query;
+      if (!q) return res.json({ error: 'Missing query parameter ?q=' });
+      const paths = await bronGraph.findAttackPaths(q);
+      res.json({ product: q, attack_paths: paths });
+    } catch (err) {
+      res.json({ error: err.message });
+    }
+  });
+
+  // BRON search
+  app.get('/api/bron/search', async (req, res) => {
+    try {
+      if (!bronGraph.connected) await bronGraph.init();
+      const { q, type } = req.query;
+      if (!q) return res.json({ results: [] });
+      const results = await bronGraph.search(q, type || null);
+      res.json({ query: q, results });
+    } catch (err) {
+      res.json({ results: [], error: err.message });
+    }
+  });
+
+  // BRON detailed CVE lookup — full description, attack chain, defenses, exploit info
+  app.get('/api/bron/cve/:cveId', async (req, res) => {
+    try {
+      if (!bronGraph.connected) await bronGraph.init();
+      const detail = await bronGraph.getDetailedCVE(req.params.cveId);
+      if (!detail) {
+        // Fallback 1: try to find CVE in local threat_intel DB
+        try {
+          const localCVE = memory.searchThreatIntel(req.params.cveId, 'cve');
+          if (localCVE && localCVE.length > 0) {
+            const c = localCVE[0];
+            return res.json({
+              cve: {
+                id: c.identifier,
+                name: c.title || c.identifier,
+                description: c.description || 'No description available.',
+                severity: c.severity || 'UNKNOWN',
+                cvss: c.cvss_score || null,
+                published: c.published_at || null,
+              },
+              cwes: [],
+              cpes: [],
+              capecs: [],
+              techniques: [],
+              tactics: [],
+              defenses: [],
+              source: 'local_db',
+            });
+          }
+        } catch { /* ignore local DB errors */ }
+
+        // Fallback 2: fetch directly from NVD API
+        try {
+          const nvdResult = await _fetchCVEFromNVD(req.params.cveId);
+          if (nvdResult) return res.json(nvdResult);
+        } catch { /* ignore NVD errors */ }
+
+        return res.json({ error: 'CVE not found in BRON graph, local database, or NVD' });
+      }
+      res.json(detail);
+    } catch (err) {
+      res.json({ error: err.message });
+    }
+  });
+
+  // BRON exploit/attack name search — search by "DDoS", "SQL injection", "firebase", etc.
+  app.get('/api/bron/exploit-search', async (req, res) => {
+    try {
+      if (!bronGraph.connected) await bronGraph.init();
+      const { q } = req.query;
+      if (!q) return res.json({ error: 'Missing query parameter ?q=' });
+
+      // Search BRON graph by exploit/attack name
+      const bronResults = await bronGraph.searchByExploitName(q);
+
+      // Also search local exploit DB for matching exploits
+      let localExploits = [];
+      try {
+        localExploits = memory.searchExploits(q).slice(0, 20);
+      } catch { /* ignore */ }
+
+      // Also search local threat intel for matching CVEs
+      let localCVEs = [];
+      try {
+        localCVEs = memory.searchThreatIntel(q, null).slice(0, 20).map(c => ({
+          cve_id: c.identifier,
+          name: c.title || c.identifier,
+          description: c.description,
+          severity: c.severity,
+          cvss: c.cvss_score,
+          published: c.published_at,
+          source: 'local_db',
+        }));
+      } catch { /* ignore */ }
+
+      // Merge local CVEs with BRON CVEs (deduplicate)
+      const seenIds = new Set(bronResults.cves.map(c => c.cve_id));
+      for (const lc of localCVEs) {
+        if (lc.cve_id && !seenIds.has(lc.cve_id)) {
+          seenIds.add(lc.cve_id);
+          bronResults.cves.push(lc);
+        }
+      }
+
+      // ═══ LIVE NVD FALLBACK ═══
+      // If we have few/no CVE results, query NVD API directly
+      const totalLocalResults = bronResults.cves.length + bronResults.capecs.length +
+        bronResults.techniques.length + bronResults.cwes.length + localExploits.length;
+
+      let nvdCVEs = [];
+      if (totalLocalResults < 5) {
+        try {
+          nvdCVEs = await _searchNVDByKeyword(q);
+          // Add NVD results that aren't already present
+          for (const nc of nvdCVEs) {
+            if (!seenIds.has(nc.cve_id)) {
+              seenIds.add(nc.cve_id);
+              bronResults.cves.push(nc);
+            }
+          }
+        } catch { /* NVD API may be down or rate-limited */ }
+      }
+
+      // Re-sort all CVEs by CVSS
+      bronResults.cves.sort((a, b) => (b.cvss || 0) - (a.cvss || 0));
+      bronResults.totalCVEs = bronResults.cves.length;
+
+      res.json({
+        ...bronResults,
+        localExploits,
+        nvdFetched: nvdCVEs.length > 0,
+      });
+    } catch (err) {
+      res.json({ error: err.message, capecs: [], techniques: [], cves: [], cwes: [] });
+    }
+  });
+
   // Generate report
   app.post('/api/report', (req, res) => {
     const { target, objective, format } = req.body;
@@ -275,6 +706,10 @@ export async function startWebServer(options = {}) {
     res.json({
       model: config.model,
       baseUrl: config.baseUrl,
+      activeProvider: config.activeProvider || 'nvidia',
+      localAiBackend: config.localAiBackend || 'lmstudio',
+      localAiBaseUrl: config.localAiBaseUrl || 'http://localhost:1234/v1',
+      localAiModel: config.localAiModel || '',
       temperature: config.temperature,
       topP: config.topP,
       maxTokens: config.maxTokens,
@@ -285,16 +720,121 @@ export async function startWebServer(options = {}) {
     });
   });
 
+  // ── Model Status: probe both NVIDIA NIM and Local AI (LM Studio, Ollama) ──
+  app.get('/api/model-status', async (req, res) => {
+    const [nvidiaStatus, localStatus] = await Promise.all([
+      checkServer('nvidia'),
+      checkServer('local'),
+    ]);
+    res.json({
+      activeProvider: config.activeProvider || 'nvidia',
+      nvidia: {
+        model: config.model,
+        baseUrl: config.baseUrl,
+        verifiedModels: VERIFIED_NVIDIA_MODELS,
+        ...nvidiaStatus,
+      },
+      local: {
+        model: config.localAiModel,
+        baseUrl: config.localAiBaseUrl,
+        backend: config.localAiBackend,
+        ...localStatus,
+      },
+    });
+  });
+
+  // ── Model Switch: update the active provider and model at runtime ──
+  app.post('/api/switch-model', express.json(), (req, res) => {
+    const { provider, model } = req.body || {};
+    if (provider) config.activeProvider = provider;
+    if (provider === 'local') {
+      if (model) config.localAiModel = model;
+    } else if (provider === 'nvidia') {
+      if (model) config.model = model;
+    }
+    const currentModel = getActiveModel();
+    const providerName = getActiveProviderName();
+    console.log(`  🔄 [Model] Switched to ${providerName} — ${currentModel}`);
+    io.emit('model-switched', { provider: config.activeProvider, model: currentModel });
+    res.json({ ok: true, provider: config.activeProvider, model: currentModel });
+  });
+
+  // ── Test Provider Connection: test live connection to NVIDIA NIM or Local AI ──
+  app.post('/api/test-provider', express.json(), async (req, res) => {
+    const { provider, baseUrl, apiKey } = req.body || {};
+    const targetProvider = provider || config.activeProvider || 'nvidia';
+    const isLocal = targetProvider === 'local';
+    const testBase = (baseUrl || (isLocal ? config.localAiBaseUrl : config.baseUrl)).replace(/\/+$/, '');
+    const testKey = apiKey !== undefined ? apiKey : (isLocal ? config.localAiApiKey : config.apiKey);
+    const startTime = Date.now();
+    try {
+      const headers = {};
+      if (testKey && testKey !== 'none' && testKey.trim() !== '') {
+        headers['Authorization'] = `Bearer ${testKey}`;
+      }
+      const response = await fetch(`${testBase}/models`, {
+        headers,
+        signal: AbortSignal.timeout(6000),
+      });
+      const latencyMs = Date.now() - startTime;
+      if (response.ok) {
+        const data = await response.json();
+        const modelsList = (data.data || []).map(m => m.id || m.name || m);
+        return res.json({
+          ok: true,
+          latencyMs,
+          models: modelsList,
+          provider: targetProvider,
+          baseUrl: testBase,
+          message: `Connected successfully in ${latencyMs}ms (${modelsList.length} model${modelsList.length === 1 ? '' : 's'} found)`,
+        });
+      } else {
+        return res.json({
+          ok: false,
+          latencyMs,
+          provider: targetProvider,
+          error: `HTTP ${response.status} ${response.statusText}`,
+          message: `Server returned HTTP ${response.status}`,
+        });
+      }
+    } catch (err) {
+      const latencyMs = Date.now() - startTime;
+      const isTimeout = err.name === 'TimeoutError' || err.code === 'ETIMEDOUT';
+      return res.json({
+        ok: false,
+        latencyMs,
+        provider: targetProvider,
+        error: err.message,
+        message: isTimeout
+          ? `Connection timed out after 6s. Check if ${isLocal ? 'LM Studio / Ollama is running and accessible' : 'NVIDIA API is reachable'}`
+          : `Failed to connect to ${testBase}: ${err.message}`,
+      });
+    }
+  });
+
   // Update config
   app.post('/api/config', (req, res) => {
-    const { model, temperature, topP, maxTokens } = req.body;
+    const {
+      model, temperature, topP, maxTokens,
+      activeProvider, localAiBackend, localAiBaseUrl, localAiModel, localAiApiKey,
+    } = req.body;
     if (model) config.model = model;
     if (temperature !== undefined) config.temperature = parseFloat(temperature);
     if (topP !== undefined) config.topP = parseFloat(topP);
     if (maxTokens !== undefined) config.maxTokens = parseInt(maxTokens);
+    if (activeProvider) config.activeProvider = activeProvider;
+    if (localAiBackend) config.localAiBackend = localAiBackend;
+    if (localAiBaseUrl) config.localAiBaseUrl = localAiBaseUrl;
+    if (localAiModel !== undefined) config.localAiModel = localAiModel;
+    if (localAiApiKey !== undefined) config.localAiApiKey = localAiApiKey;
+
     res.json({
       success: true,
+      activeProvider: config.activeProvider,
       model: config.model,
+      localAiBackend: config.localAiBackend,
+      localAiBaseUrl: config.localAiBaseUrl,
+      localAiModel: config.localAiModel,
       temperature: config.temperature,
       topP: config.topP,
       maxTokens: config.maxTokens,
@@ -567,7 +1107,8 @@ export async function startWebServer(options = {}) {
 
     // Send initial state
     socket.emit('chat:ready', {
-      model: config.model,
+      provider: config.activeProvider || 'nvidia',
+      model: getActiveModel(),
       messageCount: agent.messages.length,
       usage: agent.getUsage(),
     });
@@ -747,12 +1288,14 @@ export async function startWebServer(options = {}) {
   });
 
   httpServer.listen(port, () => {
+    const bronStatus = bronGraph.connected ? '✅ Connected' : '⚠️ Offline';
     console.log(`\n  🐉 Jarvis Cyber — Web Command Center`);
     console.log(`  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     console.log(`  🌐 Dashboard:  http://localhost:${port}`);
     console.log(`  📡 API:        http://localhost:${port}/api/health`);
     console.log(`  🔌 WebSocket:  ws://localhost:${port}`);
-    console.log(`  🧠 Model:      ${config.model}`);
+    console.log(`  🧠 Model:      ${getActiveModel()} (${getActiveProviderName()})`);
+    console.log(`  🔗 BRON:       ${bronStatus}`);
     console.log(`  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
   });
 }

@@ -3,6 +3,8 @@
 // Adaptive rate limiting + parallel fetching to minimize API pressure
 import { memory } from './memory.js';
 import config from './config.js';
+import { bronGraph } from './bron-graph.js';
+import { addCVEToGraph } from './bron-bootstrap.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -168,6 +170,42 @@ export class AutoLearner {
         }), 3);
       } else {
         console.log(`  📅 DAILY tier: all ${dailySources.length} sources up-to-date ✓`);
+      }
+
+      // ═══ BRON GRAPH SYNC — Cross-reference with knowledge graph ═══
+      if (config.bronEnabled) {
+        try {
+          const bronConnected = await bronGraph.init();
+          if (bronConnected) {
+            console.log('  🔗 BRON tier: Syncing recent CVEs to knowledge graph...');
+            const recentCVEs = memory.getLatestCVEs(50);
+            let synced = 0;
+            for (const cve of recentCVEs) {
+              try {
+                const cwes = [];
+                const cpes = [];
+                // Extract CWE from description if available
+                const cweMatch = (cve.description || '').match(/CWE-\d+/g);
+                if (cweMatch) cwes.push(...cweMatch);
+                
+                await addCVEToGraph({
+                  id: cve.cve_id || cve.identifier,
+                  description: cve.description,
+                  severity: cve.severity,
+                  cvss_score: cve.cvss_score,
+                  cwes,
+                  cpes,
+                });
+                synced++;
+              } catch { /* skip individual CVE errors */ }
+            }
+            if (synced > 0) {
+              console.log(`    ✓ BRON sync: ${synced} CVEs linked to knowledge graph`);
+            }
+          }
+        } catch (err) {
+          console.error(`    ⚠️ BRON sync: ${err.message}`);
+        }
       }
 
       const elapsed = ((Date.now() - start) / 1000).toFixed(1);

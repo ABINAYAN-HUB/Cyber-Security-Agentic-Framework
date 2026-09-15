@@ -58,6 +58,7 @@ Jarvis Cyber is a **fully autonomous AI cybersecurity agent** powered by NVIDIA 
 ## 🧠 Key Capabilities
 
 - **🧠 Dynamic Strategy Engine** — Generates custom attack plans using MITRE ATT&CK technique mapping and Cyber Kill Chain phase progression. Every strategy is unique to the target.
+- **🔗 BRON Knowledge Graph (ArangoDB)** — Deep local graph database linking MITRE ATT&CK ↔ CAPEC ↔ CWE ↔ CVE ↔ CPE ↔ D3FEND. Instantly traces vulnerabilities to specific attack patterns, threat actor techniques, and defensive countermeasures. Features real-time live NVD API fallback for zero-day searches.
 - **🔧 150+ Kali Tool Registry** — Auto-detects installed tools across 12 categories (recon, exploitation, wireless, post-exploitation, etc.) with full usage examples the AI uses to construct commands dynamically.
 - **📦 Self-Healing Tool Installer** — Missing a tool? Jarvis auto-installs it from `apt`, `pip`, `go`, `npm`, `gem`, `cargo`, GitHub, or direct URL. Crashes from missing dependencies trigger automatic self-repair.
 - **🌐 Web UI Dashboard** — Real-time browser-based command center with AI chat, tool browser, threat intel viewer, report management, and system settings.

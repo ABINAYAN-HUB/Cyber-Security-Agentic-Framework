@@ -36,6 +36,9 @@ import * as generateReport from './generate-report.js';
 // ═══ FOFA ═══
 import * as fofaSearch from './fofa-search.js';
 
+// ═══ BRON KNOWLEDGE GRAPH ═══
+import { bronLookup, bronAttackChain, bronFindDefenses, bronProductRisks } from './bron-tools.js';
+
 // ═══ DYNAMIC TOOL INSTALLER ═══
 import * as installTool from './install-tool.js';
 
@@ -92,6 +95,9 @@ const tools = [
   // ═══ Dynamic Tool Installer ═══
   installTool,
   
+  // ═══ BRON Knowledge Graph ═══
+  bronLookup, bronAttackChain, bronFindDefenses, bronProductRisks,
+  
   // ═══ Subagent Management ═══
   spawnSubagent, checkSubagentStatus, listSubagents,
   
@@ -117,6 +123,7 @@ export const safeTools = new Set([
   'hash_generate', 'encode_decode', 'memory_store', 'metasploit_rpc',
   'fofa_search', 'subfinder_enum', 'httpx_probe', 'dnsx_resolve',
   'uncover_search', 'katana_crawl', 'generate_report',
+  'bron_lookup', 'bron_attack_chain', 'bron_find_defenses', 'bron_product_risks',
 ]);
 
 export const writeTools = new Set([

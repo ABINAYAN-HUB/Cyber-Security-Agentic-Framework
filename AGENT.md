@@ -4,7 +4,7 @@
 This is **Jarvis Cyber v4.0**, an autonomous AI cybersecurity agent framework with a full Web UI Command Center.
 
 ## Architecture
-- **Core**: Node.js ES Module agent with NVIDIA NIM API backend (GLM 5.1, chain-of-thought reasoning)
+- **Core**: Node.js ES Module agent with NVIDIA NIM API backend (`nvidia/nemotron-3-super-120b-a12b` default, chain-of-thought reasoning) or Local AI servers (LM Studio / Ollama)
 - **Interfaces**: CLI REPL, Web UI (Express + Socket.io), Telegram Bot, Background Daemon, MCP Server
 - **Memory**: SQLite persistent memory (jarvis-memory.db) with 15+ tables
 - **Tools**: 35 built-in API tools + 150+ Kali tool registry with auto-install from Web UI

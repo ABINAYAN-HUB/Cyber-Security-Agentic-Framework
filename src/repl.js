@@ -45,14 +45,14 @@ export async function startRepl(cwd, options = {}) {
   }
 
   const availableModels = serverCheck.models || [];
-  const modelAvailable = availableModels.length === 0 || availableModels.some(m => m.id === config.model);
+  const modelAvailable = availableModels.length === 0 || availableModels.some(m => (m.id || m) === config.model);
 
   if (modelAvailable) {
     ui.printInfo(`${ui.icons.success} Connected — Model: ${ui.colors.secondary(config.model)}`);
   } else {
     ui.printWarning(`Model "${config.model}" not available.`);
     if (availableModels.length > 0) {
-      config.model = availableModels[0].id;
+      config.model = availableModels[0].id || availableModels[0];
       ui.printInfo(`${ui.icons.success} Auto-switched to: ${ui.colors.secondary(config.model)}`);
     }
   }

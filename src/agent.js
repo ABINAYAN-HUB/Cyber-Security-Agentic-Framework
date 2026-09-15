@@ -7,13 +7,15 @@ import * as ui from './ui.js';
 import { memory } from './memory.js';
 import { toolInstaller } from './tool-installer.js';
 import { toolBridge } from './tool-bridge.js';
+import { bronGraph } from './bron-graph.js';
 import { exec as _exec } from 'child_process';
 
 export class Agent {
   constructor(cwd) {
     this.cwd = cwd;
     this.messages = [];
-    this.systemPrompt = buildSystemPrompt(cwd);
+    this.systemPrompt = null; // Lazy-initialized (async buildSystemPrompt)
+    this._systemPromptReady = false;
     this.totalInputTokens = 0;
     this.totalOutputTokens = 0;
     this.turnCount = 0;
@@ -30,6 +32,12 @@ export class Agent {
    * Loops: send to LLM → if tool calls, execute them → re-send → repeat until text response.
    */
   async processMessage(userMessage, onUpdate = null, onTool = null, signal = null) {
+    // Lazy-init system prompt (async — includes BRON graph context)
+    if (!this._systemPromptReady) {
+      this.systemPrompt = await buildSystemPrompt(this.cwd);
+      this._systemPromptReady = true;
+    }
+
     this.messages.push({ role: 'user', content: userMessage });
     this.turnCount++;
 
@@ -45,7 +53,7 @@ export class Agent {
     const maxLoops = 50; // High limit for complex multi-step hacking/coding tasks
 
     const sendDesktopNotification = (title, message) => {
-      try { _exec(`notify-send "${title}" "${message}"`); } catch {}
+      try { _exec(`notify-send "${title}" "${message}"`); } catch { }
     };
 
     while (loopCount < maxLoops) {
@@ -65,12 +73,12 @@ export class Agent {
               requiresFeedback = true;
             }
           }
-          
+
           if (requiresFeedback) {
             if (!this.isSubagent) ui.printWarning("Agent paused execution to wait for user approval.");
             break;
           }
-          
+
           // Continue the loop — LLM needs to process all tool results
           continue;
         }
@@ -85,11 +93,12 @@ export class Agent {
 
       } catch (error) {
         ui.printError(`Agent error: ${error.message}`);
-        
+
         // Persistent retry loop for network outages so the agent task doesn't just die
         // CRITICAL FIX: Also catch abort errors (from WebSocket disconnect or timeout)
-        const isNetworkError = error.message.includes('NVIDIA NIM API') 
-          || error.message.includes('fetch failed') 
+        const isNetworkError = error.message.includes('NIM API')
+          || error.message.includes('Local AI')
+          || error.message.includes('fetch failed')
           || error.message.includes('network error')
           || error.message.includes('aborted')
           || error.message.includes('operation was aborted');
@@ -202,7 +211,7 @@ export class Agent {
   async _handleToolCall(toolCall, onTool = null) {
     const name = toolCall.function.name;
     let args = {};
-    
+
     try {
       args = JSON.parse(toolCall.function.arguments || '{}');
     } catch (parseError) {
@@ -211,11 +220,11 @@ export class Agent {
       // the API throws a 400 Bad Request ("Unterminated string").
       // We must sanitize the broken string into valid JSON so the next API call succeeds.
       toolCall.function.arguments = JSON.stringify({ _error: "Invalid JSON from model" });
-      
+
       const safeMsg = parseError && parseError.message ? parseError.message : String(parseError);
-      const errorResult = { 
-        success: false, 
-        error: `Failed to parse tool arguments. Invalid JSON syntax: ${safeMsg}. Payload: ${toolCall.function.arguments}` 
+      const errorResult = {
+        success: false,
+        error: `Failed to parse tool arguments. Invalid JSON syntax: ${safeMsg}. Payload: ${toolCall.function.arguments}`
       };
       this._addToolResult(toolCall.id, name, errorResult);
       if (!this.isSubagent) ui.printToolResult(name, errorResult);
@@ -227,8 +236,8 @@ export class Agent {
 
     // Generic Anti-Loop: Prevent repeating the exact same failed command
     if ((this.failedToolSignatures[signature] || 0) >= 2) {
-      const loopError = { 
-        success: false, 
+      const loopError = {
+        success: false,
         error: `SYSTEM OVERRIDE: You have already tried this exact action multiple times and it failed. DO NOT TRY THIS AGAIN. Change your approach or ask the user for help.`
       };
       this._addToolResult(toolCall.id, name, loopError);
@@ -239,8 +248,8 @@ export class Agent {
     // Generic Anti-Loop: Prevent alternating failure loops (A -> B -> C -> A)
     // threshold increased to 15 to allow for extensive reconnaissance/scanning
     if (this.consecutiveFailures >= 15) {
-      const loopError = { 
-        success: false, 
+      const loopError = {
+        success: false,
         error: `SYSTEM OVERRIDE: You have failed 15 consecutive tool calls across different approaches. You are stuck in a failure loop. STOP EXECUTING TOOLS. Summarize what you tried and ask the user for completely new guidance.`
       };
       this._addToolResult(toolCall.id, name, loopError);
@@ -273,7 +282,7 @@ export class Agent {
     // --- SEMANTIC EXECUTION CACHE INTERCEPT ---
     const cacheableReconTools = ['shodan_search', 'dns_recon', 'whois_lookup', 'ip_geolocation', 'port_scanner', 'waf_detector', 'subdomain_enum', 'cve_lookup', 'cloud_enum', 'email_harvester', 'wayback_machine'];
     const cacheableCommands = /^(nmap|masscan|nuclei|nikto|dirb|gobuster|ffuf|whatweb|wpscan|dig|nslookup|whois|curl|wget)\b/i;
-    
+
     let isCacheable = cacheableReconTools.includes(name);
     if (name === 'execute_command' && args.command && !args.background) {
       if (cacheableCommands.test(args.command.trim())) isCacheable = true;
@@ -288,7 +297,7 @@ export class Agent {
           console.log(ui.colors.success(`     ⚡ [CACHE HIT] Loaded instantly from Recon DB`));
           ui.printToolResult(name, cachedResult);
         }
-        
+
         // Reset failures since we successfully moved forward in the action tree
         this.consecutiveFailures = 0;
         delete this.failedToolSignatures[signature];
@@ -312,7 +321,7 @@ export class Agent {
     try {
       const result = await executor(args, this.cwd);
       if (execSpinner) execSpinner.stop();
-      
+
       // Update global failure state
       const isActuallyFailure = this._isSubstantialFailure(name, args, result);
 
@@ -323,9 +332,9 @@ export class Agent {
         // Reset failures if the tool successfully changed the state (e.g. wrote a file or executed successfully)
         const nonResettingPattern = /^(echo|pwd|true|false|:)\b/i;
         const isNonResetting = nonResettingPattern.test(args.command || '');
-        
+
         const isFileModifier = name === 'write_file' || name === 'replace_file_content' || name === 'multi_replace_file_content';
-        
+
         if (!isNonResetting) {
           this.consecutiveFailures = 0;
           delete this.failedToolSignatures[signature];
@@ -344,7 +353,7 @@ export class Agent {
       if (isCacheable && result.success !== false && !result.error) {
         let ttlHours = 24; // DNS, WHOIS change rarely
         if (name === 'port_scanner' || name === 'waf_detector' || name === 'execute_command') {
-           ttlHours = 2; // Port states change frequently
+          ttlHours = 2; // Port states change frequently
         }
         memory.cacheResult(cacheKey, result, name, ttlHours);
       }
@@ -355,10 +364,47 @@ export class Agent {
 
       // ═══ TOOL TELEMETRY — Log execution for report generation ═══
       toolBridge.logToolUsage(name, args, result, Date.now() - execStart);
+
+      // ═══ BRON ACTIVE ADVISORY — Non-blocking threat intelligence enrichment ═══
+      // Fire-and-forget with a 1.5s timeout — never stalls the tool loop.
+      const _BRON_RECON_TOOLS = new Set([
+        'port_scanner', 'shodan_search', 'fofa_search', 'dns_recon', 'whois_lookup',
+        'subdomain_enum', 'cve_lookup', 'cloud_enum', 'email_harvester', 'waf_detector',
+        'ip_geolocation', 'wayback_machine',
+      ]);
+      const isBronEligible = _BRON_RECON_TOOLS.has(name) && result.success !== false && !result.error;
+      if (isBronEligible && config.bronEnabled && bronGraph.connected) {
+        // Don't await — race against a 1.5s deadline
+        const bronPromise = (async () => {
+          const keywords = [
+            args.target || args.query || args.domain || args.ip || args.host || '',
+          ].filter(Boolean).join(' ');
+          return bronGraph.queryForTool(name, keywords, result);
+        })();
+        const timeoutPromise = new Promise(r => setTimeout(() => r(null), 1500));
+
+        try {
+          const bronHints = await Promise.race([bronPromise, timeoutPromise]);
+          if (bronHints && bronHints.length > 0) {
+            const bronAdvisory = [
+              `[BRON ADVISORY] Based on the \`${name}\` result, the BRON knowledge graph suggests:`,
+              ...bronHints.map(h => `  • ${h}`),
+              `Use this context to inform your next decision.`,
+            ].join('\n');
+            this.messages.push({ role: 'user', content: bronAdvisory });
+            if (!this.isSubagent) {
+              console.log(ui.colors.muted(`  🔗 [BRON] Advisory injected — ${bronHints.length} hint(s)`));
+            }
+          }
+        } catch {
+          // BRON advisory is non-critical — silently skip
+        }
+      }
+
       return result;
     } catch (error) {
       if (execSpinner) execSpinner.stop();
-      
+
       this.consecutiveFailures++;
       this.failedToolSignatures[signature] = (this.failedToolSignatures[signature] || 0) + 1;
 
@@ -366,7 +412,7 @@ export class Agent {
       // If the error is a missing tool/module, auto-install and notify AI to retry
       const errorMsg = error.message || '';
       const selfHealResult = toolInstaller.resolveFromError(errorMsg);
-      
+
       if (selfHealResult && selfHealResult.success) {
         // Successfully auto-installed the missing dependency
         if (!this.isSubagent) {
@@ -375,9 +421,9 @@ export class Agent {
         // Clear failure signatures so the AI can retry the same command
         this.consecutiveFailures = Math.max(0, this.consecutiveFailures - 1);
         delete this.failedToolSignatures[signature];
-        
-        const healResult = { 
-          success: false, 
+
+        const healResult = {
+          success: false,
           error: error.message,
           self_heal: `SYSTEM: Missing dependency was AUTO-INSTALLED via ${selfHealResult.method}. You can now RETRY this exact command — it should work now.`
         };
@@ -418,7 +464,7 @@ export class Agent {
         process.stdin.removeListener('data', onData);
         // Restore raw mode if it was set before
         if (wasRaw !== undefined) {
-          try { process.stdin.setRawMode(wasRaw); } catch {}
+          try { process.stdin.setRawMode(wasRaw); } catch { }
         }
         const a = data.trim().toLowerCase();
         process.stdout.write('\n');
@@ -441,7 +487,7 @@ export class Agent {
       content = JSON.stringify({ success: false, error: "Result serialization failed: " + String(e) });
       result = { _clipped: true }; // prevent further processing issues
     }
-    
+
     // Truncate massive tool results (e.g. full file contents, huge command output)
     // to prevent sending 50KB+ back to the API on the next turn
     if (content.length > 8000) {
@@ -461,7 +507,7 @@ export class Agent {
       }
       content = JSON.stringify(truncated);
     }
-    
+
     this.messages.push({
       role: 'tool',
       tool_call_id: toolCallId,
@@ -487,10 +533,10 @@ export class Agent {
     }
 
     const summary = `[Conversation summary: ${this.turnCount} turns, ${this.messages.length} messages. Working in ${this.cwd}.]`;
-    
+
     // Keep the last 8 messages for better context continuity
     const kept = this.messages.slice(-8);
-    
+
     // Truncate oversized tool results in kept messages to reduce token bloat
     for (const msg of kept) {
       if (msg.role === 'tool' && msg.content) {
@@ -507,10 +553,10 @@ export class Agent {
             parsed.listing = parsed.listing.slice(0, 2000) + '\n... [truncated]';
           }
           msg.content = JSON.stringify(parsed);
-        } catch {}
+        } catch { }
       }
     }
-    
+
     this.messages = [
       { role: 'user', content: summary },
       { role: 'assistant', content: 'Understood. I have context from our previous conversation. How can I help you next?' },
@@ -543,7 +589,7 @@ export class Agent {
       // Recon/Cleanup tools that return code 1 (not found/stopped) are not substantial failures
       const softFailureTools = /^(pkill|kill|grep|pgrep|lsof|ss|netstat|ls|test|rm|mkdir|cat)\b/i;
       if (softFailureTools.test(args.command) && (result.exit_code === 1 || result.exit_code === 2)) {
-        return false; 
+        return false;
       }
       // WiFi/network tools commonly exit non-zero during normal operation
       // timeout exits with code 124, airodump/aireplay exit with 1 after capture

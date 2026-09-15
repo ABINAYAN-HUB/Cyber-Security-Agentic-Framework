@@ -17,6 +17,7 @@ class App {
     this.state = {
       connected: false,
       model: '—',
+      activeProvider: 'nvidia',
       health: null,
       stats: null,
     };
@@ -153,7 +154,11 @@ class App {
 
     this.socket.on('chat:ready', (data) => {
       this.state.model = data.model;
-      document.getElementById('model-badge').textContent = data.model?.split('/').pop() || '—';
+      this.state.activeProvider = data.provider || 'nvidia';
+      // Notify chat view if it's active
+      if (this.views.chat && this.views.chat.onModelUpdate) {
+        this.views.chat.onModelUpdate(this.state.activeProvider, data.model);
+      }
     });
 
     // Forward all chat events to the chat view
@@ -168,6 +173,24 @@ class App {
           this.views.chat.handleSocketEvent(event, data);
         }
       });
+    });
+
+    // Listen for model-switched event (broadcast when any client switches)
+    this.socket.on('model-switched', (data) => {
+      this.state.model = data.model;
+      this.state.activeProvider = data.provider || 'nvidia';
+      // Notify chat view to update its header indicator pill
+      if (this.views.chat && this.views.chat.onModelUpdate) {
+        this.views.chat.onModelUpdate(this.state.activeProvider, data.model);
+      }
+      // If currently on Settings page, refresh it to show updated active state
+      if (this.currentViewName === 'settings' && this.views.settings?.render) {
+        const container = document.getElementById('page-content');
+        if (container) this.views.settings.render(container);
+      }
+      const shortName = (data.model || 'Model').split('/').pop();
+      const providerLabel = data.provider === 'local' ? 'Local AI' : 'NVIDIA NIM';
+      Toast.success(`${providerLabel}: ${shortName}`);
     });
   }
 
@@ -214,7 +237,6 @@ class App {
     if (health) {
       this.state.health = health;
       this.state.model = health.model;
-      document.getElementById('model-badge').textContent = health.model?.split('/').pop() || '—';
     }
   }
 }

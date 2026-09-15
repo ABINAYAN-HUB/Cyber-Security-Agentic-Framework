@@ -24,6 +24,8 @@ if (args.includes('--help') || args.includes('-h')) {
     --telegram              Launch Telegram bot mode
     --daemon                Run as background daemon with heartbeat, auto-learning & Telegram
     --learn                 Run a single auto-learning cycle and exit
+    --update-bron           Download & load BRON knowledge graph into ArangoDB
+    --update-bron --fresh   Rebuild BRON graph from scratch
 
   Options:
     --help, -h              Show this help message
@@ -102,6 +104,20 @@ if (args.includes('--learn')) {
       await autoLearner.run();
       memory.close();
       process.exit(0);
+    } catch (err) {
+      console.error(`Fatal: ${err.message}`);
+      process.exit(1);
+    }
+  });
+}
+
+// ═══ MODE: BRON KNOWLEDGE GRAPH UPDATE ═══
+else if (args.includes('--update-bron')) {
+  import('./src/bron-bootstrap.js').then(async ({ bootstrapBRON }) => {
+    try {
+      const fresh = args.includes('--fresh');
+      const result = await bootstrapBRON({ fresh });
+      process.exit(result ? 0 : 1);
     } catch (err) {
       console.error(`Fatal: ${err.message}`);
       process.exit(1);

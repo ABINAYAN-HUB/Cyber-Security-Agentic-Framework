@@ -5,6 +5,7 @@ import { dynamicSkills } from './dynamic-skills.js';
 import { buildToolsContext } from './kali-tools-registry.js';
 import { buildFrameworkContext } from './frameworks.js';
 import { toolBridge } from './tool-bridge.js';
+import { bronGraph } from './bron-graph.js';
 import config from './config.js';
 
 // ═══ Get network interfaces ═══
@@ -21,7 +22,7 @@ function getNetworkInfo() {
   return ips.join(', ') || 'No external interfaces';
 }
 
-export function buildSystemPrompt(cwd) {
+export async function buildSystemPrompt(cwd) {
   const os = platform();
   const user = userInfo().username;
   const host = hostname();
@@ -340,7 +341,8 @@ All \`sudo\` commands are automatically run with \`-n\` (non-interactive) flag. 
 - **OS**: ${os} (${archInfo}) | **CPU**: ${cpuInfo} (${cpuCount} cores) | **RAM**: ${ramGB}GB
 - **Shell**: ${shell} | **User**: ${user}@${host} | **CWD**: ${cwd}
 - **Network**: ${netInfo}
-- **Time**: ${now}`;
+- **Time**: ${now}
+- **AI Engine**: ${config.activeProvider === 'local' ? 'Local AI Server' : 'NVIDIA NIM API'} | **Active Model**: ${config.activeProvider === 'local' ? (config.localAiModel || 'Local Model') : config.model}`;
 
   // Add framework context (MITRE ATT&CK + Cyber Kill Chain)
   if (frameworkContext) {
@@ -363,6 +365,17 @@ All \`sudo\` commands are automatically run with \`-n\` (non-interactive) flag. 
     const bridgeContext = toolBridge.getContext();
     if (bridgeContext) {
       prompt += bridgeContext;
+    }
+  } catch {}
+
+  // ═══ BRON KNOWLEDGE GRAPH CONTEXT ═══
+  // Injects BRON graph stats and usage instructions if connected
+  try {
+    if (config.bronEnabled && bronGraph.connected) {
+      const bronContext = await bronGraph.getPromptContext();
+      if (bronContext) {
+        prompt += bronContext;
+      }
     }
   } catch {}
 

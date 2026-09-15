@@ -1,0 +1,37 @@
+# Jarvis Cyber — BRON Knowledge Graph (ArangoDB)
+# Usage: docker-compose -f docker-compose.bron.yml up -d
+#
+# This spins up an ArangoDB instance pre-configured for the BRON
+# cybersecurity knowledge graph (ATT&CK ↔ CAPEC ↔ CWE ↔ CVE ↔ CPE ↔ D3FEND)
+
+version: '3.8'
+
+services:
+  brondb:
+    image: arangodb:3.12
+    container_name: jarvis-brondb
+    restart: unless-stopped
+    environment:
+      ARANGO_ROOT_PASSWORD: ${BRON_DB_PASSWORD:-jarvis_bron_2024}
+    ports:
+      - "${BRON_DB_PORT:-8529}:8529"
+    volumes:
+      - bron_data:/var/lib/arangodb3
+      - bron_apps:/var/lib/arangodb3-apps
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8529/_api/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+volumes:
+  bron_data:
+    driver: local
+  bron_apps:
+    driver: local

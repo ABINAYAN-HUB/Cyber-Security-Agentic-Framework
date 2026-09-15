@@ -54,7 +54,10 @@ export class ChatView {
               <h1 class="chat-header-title" id="chat-header-title">New Chat</h1>
             </div>
             <div class="chat-header-right">
-              <span class="model-badge" id="chat-model-badge">Agent Ready</span>
+              <div class="chat-model-pill" id="chat-model-pill" title="Current AI Model">
+                <span class="chat-model-dot" id="chat-model-dot"></span>
+                <span class="chat-model-name" id="chat-model-name">Loading...</span>
+              </div>
             </div>
           </div>
           <div class="chat-messages" id="chat-messages">
@@ -95,9 +98,10 @@ export class ChatView {
       this.scrollToBottom(true);
     }
 
-    // Setup suggestion chips & load sessions after DOM is ready
+    // Setup suggestion chips, model pill & load sessions after DOM is ready
     requestAnimationFrame(() => {
       this.setupSuggestionChips();
+      this.setupModelPill();
       this.loadSessions();
     });
   }
@@ -105,6 +109,45 @@ export class ChatView {
   teardown() {
     this.rendered = false;
     this.stopThinkingTimer();
+  }
+
+  // ═══ MODEL PILL (Header indicator linking to Settings) ═══
+
+  setupModelPill() {
+    const pill = document.getElementById('chat-model-pill');
+    if (pill) {
+      pill.style.cursor = 'pointer';
+      pill.title = 'Current AI Model — Click to configure in Settings';
+      pill.addEventListener('click', () => {
+        window.location.hash = 'settings';
+      });
+    }
+    this._updateModelPill(this.app.state.activeProvider || 'nvidia', this.app.state.model);
+  }
+
+  _updateModelPill(provider, model) {
+    const headerPill = document.getElementById('chat-model-name');
+    const headerDot = document.getElementById('chat-model-dot');
+    const isLocal = provider === 'local';
+    if (headerPill) {
+      if (isLocal) {
+        const shortName = (model && model.trim() !== '' && model !== '—') ? model.split('/').pop() : 'Local AI';
+        headerPill.textContent = `💻 ${shortName}`;
+      } else {
+        const shortName = (model && model.trim() !== '' && model !== '—') ? model.split('/').pop() : 'Nemotron';
+        headerPill.textContent = `⚡ ${shortName}`;
+      }
+    }
+    if (headerDot) {
+      headerDot.className = `chat-model-dot ${isLocal ? 'local' : 'cloud'}`;
+    }
+  }
+
+  // Called by app.js when model switches
+  onModelUpdate(provider, model) {
+    if (this.rendered) {
+      this._updateModelPill(provider, model);
+    }
   }
 
   // ═══ INPUT HANDLING ═══

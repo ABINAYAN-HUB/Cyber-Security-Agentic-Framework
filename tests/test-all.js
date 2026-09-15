@@ -203,8 +203,8 @@ async function testConfig() {
     assert(config.memoryDbPath.includes('jarvis'), `DB path should contain 'jarvis': ${config.memoryDbPath}`);
   });
 
-  test('Model is GLM 5.1', () => {
-    assert(config.model.includes('glm5.1') || config.model.includes('glm-5.1'), `Model should be GLM 5.1: ${config.model}`);
+  test('Model is DeepSeek V4 Flash', () => {
+    assert(config.model.includes('deepseek-v4-flash'), `Model should be DeepSeek: ${config.model}`);
   });
 
   test('FOFA config fields exist', () => {
