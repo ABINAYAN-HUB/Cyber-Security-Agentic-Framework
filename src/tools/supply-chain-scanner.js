@@ -81,10 +81,10 @@ export async function execute(args) {
       results.findings.push(...depFindings);
     }
     if (scan_type === 'full' || scan_type === 'typosquatting') {
-      results.findings.push(...scanTyposquatting(projectDir, detected, ecosystem));
+      results.findings.push(...await scanTyposquatting(projectDir, detected, ecosystem));
     }
     if (scan_type === 'full' || scan_type === 'dependency_confusion') {
-      results.findings.push(...scanDependencyConfusion(projectDir, detected, ecosystem));
+      results.findings.push(...await scanDependencyConfusion(projectDir, detected, ecosystem));
     }
     if (scan_type === 'full' || scan_type === 'cicd') {
       results.findings.push(...scanCICD(projectDir));
@@ -136,15 +136,25 @@ export const lookupDefinition = {
 export async function executeLookup(args) {
   const { package_name, ecosystem } = args;
   try {
+    // Query OSV.dev for vulnerabilities
     const osvResult = await queryOSV(package_name, ecosystem);
+    
+    // Dynamic typosquatting check
+    const typoRisk = await checkTyposquatRisk(package_name, ecosystem);
+    
+    // Check if package actually exists on public registry
+    const ecoKey = ecosystem === 'PyPI' ? 'pip' : ecosystem.toLowerCase();
+    const existsOnRegistry = await checkPackageExistsOnPublicRegistry(package_name, ecoKey);
+    
     return {
       success: true,
       package: package_name,
       ecosystem,
+      exists_on_registry: existsOnRegistry,
       vulnerabilities: osvResult.vulns || [],
       total_vulns: osvResult.total || 0,
       risk_level: osvResult.total > 5 ? 'HIGH' : osvResult.total > 0 ? 'MEDIUM' : 'LOW',
-      typosquatting_risk: checkTyposquatRisk(package_name, ecosystem),
+      typosquatting_risk: typoRisk,
     };
   } catch (err) {
     return { success: false, error: err.message };
@@ -316,18 +326,76 @@ function runNativeAudit(dir, eco) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// TYPOSQUATTING DETECTION
+// TYPOSQUATTING DETECTION — DYNAMIC
+// Fetches popular packages from registries dynamically
+// with in-memory cache + static fallback
 // ═══════════════════════════════════════════════════════════
 
-const POPULAR_NPM = ['react','lodash','express','axios','moment','chalk','commander','debug','uuid','dotenv','typescript','webpack','babel','jest','mocha','eslint','prettier','underscore','async','bluebird','request','inquirer','minimist','yargs','glob','mkdirp','rimraf','semver','fs-extra','cross-env','classnames','prop-types','body-parser','cors','jsonwebtoken','bcrypt','mongoose','sequelize','socket.io','redis','pg','mysql2','nodemon','concurrently','tslib','rxjs','core-js'];
-const POPULAR_PYPI = ['requests','numpy','pandas','flask','django','boto3','setuptools','pip','wheel','urllib3','certifi','six','pyyaml','cryptography','jinja2','click','pillow','scipy','matplotlib','sqlalchemy','pytest','tqdm','beautifulsoup4','lxml','scrapy','celery','redis','gunicorn','uvicorn','fastapi','pydantic','httpx','aiohttp'];
+// Static fallback — only used if live API calls fail
+const FALLBACK_NPM = ['react','lodash','express','axios','moment','chalk','commander','debug','uuid','dotenv','typescript','webpack','babel','jest','mocha','eslint','prettier','underscore','async','bluebird','request','inquirer','minimist','yargs','glob','mkdirp','rimraf','semver','fs-extra','cross-env','classnames','prop-types','body-parser','cors','jsonwebtoken','bcrypt','mongoose','sequelize','socket.io','redis','pg','mysql2','nodemon','concurrently','tslib','rxjs','core-js','next','vite','esbuild','turbo','zod','prisma','drizzle-orm','trpc','svelte','vue','angular','nuxt','remix','astro','tailwindcss','postcss','autoprefixer','sass','less','styled-components','emotion'];
+const FALLBACK_PYPI = ['requests','numpy','pandas','flask','django','boto3','setuptools','pip','wheel','urllib3','certifi','six','pyyaml','cryptography','jinja2','click','pillow','scipy','matplotlib','sqlalchemy','pytest','tqdm','beautifulsoup4','lxml','scrapy','celery','redis','gunicorn','uvicorn','fastapi','pydantic','httpx','aiohttp','transformers','torch','tensorflow','keras','scikit-learn','opencv-python','black','ruff','mypy','poetry','pipenv','rich','typer'];
 
-function scanTyposquatting(dir, ecosystems, filterEco) {
+// Dynamic cache — populated on first use per session
+const _dynamicPopularCache = { npm: null, pip: null, npmFetchedAt: 0, pipFetchedAt: 0 };
+const CACHE_TTL = 3600000; // 1 hour
+
+async function getPopularPackages(ecosystem) {
+  const now = Date.now();
+  
+  if (ecosystem === 'npm') {
+    if (_dynamicPopularCache.npm && (now - _dynamicPopularCache.npmFetchedAt) < CACHE_TTL) {
+      return _dynamicPopularCache.npm;
+    }
+    // Start with fallback, merge dynamic results on top
+    const combined = new Set(FALLBACK_NPM);
+    try {
+      const res = await fetch('https://registry.npmjs.org/-/v1/search?text=boost-exact:true&popularity=1.0&size=250', {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        for (const o of data.objects || []) {
+          if (o.package?.name) combined.add(o.package.name);
+        }
+      }
+    } catch { /* use fallback only */ }
+    const result = [...combined];
+    _dynamicPopularCache.npm = result;
+    _dynamicPopularCache.npmFetchedAt = now;
+    return result;
+  }
+  
+  if (ecosystem === 'pip') {
+    if (_dynamicPopularCache.pip && (now - _dynamicPopularCache.pipFetchedAt) < CACHE_TTL) {
+      return _dynamicPopularCache.pip;
+    }
+    const combined = new Set(FALLBACK_PYPI);
+    try {
+      const res = await fetch('https://hugovk.github.io/top-pypi-packages/top-pypi-packages-30-days.min.json', {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        for (const r of (data.rows || []).slice(0, 250)) {
+          if (r.project) combined.add(r.project);
+        }
+      }
+    } catch { /* use fallback only */ }
+    const result = [...combined];
+    _dynamicPopularCache.pip = result;
+    _dynamicPopularCache.pipFetchedAt = now;
+    return result;
+  }
+
+  return [];
+}
+
+async function scanTyposquatting(dir, ecosystems, filterEco) {
   const findings = [];
   for (const eco of ecosystems) {
     if (filterEco !== 'auto' && eco.ecosystem !== filterEco) continue;
     const deps = parseDependencies(dir, eco);
-    const popular = eco.ecosystem === 'npm' ? POPULAR_NPM : eco.ecosystem === 'pip' ? POPULAR_PYPI : [];
+    const popular = await getPopularPackages(eco.ecosystem);
 
     for (const dep of deps) {
       const name = dep.name.toLowerCase().replace(/^@[^/]+\//, '');
@@ -363,8 +431,9 @@ function levenshtein(a, b) {
   return dp[m][n];
 }
 
-function checkTyposquatRisk(name, ecosystem) {
-  const popular = ecosystem === 'npm' ? POPULAR_NPM : ecosystem === 'PyPI' ? POPULAR_PYPI : [];
+async function checkTyposquatRisk(name, ecosystem) {
+  const ecoKey = ecosystem === 'PyPI' ? 'pip' : ecosystem === 'npm' ? 'npm' : ecosystem;
+  const popular = await getPopularPackages(ecoKey);
   const lower = name.toLowerCase();
   for (const pop of popular) {
     const dist = levenshtein(lower, pop);
@@ -374,25 +443,80 @@ function checkTyposquatRisk(name, ecosystem) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// DEPENDENCY CONFUSION DETECTION
+// DEPENDENCY CONFUSION DETECTION — DYNAMIC
+// Actually checks if packages exist on public registries
 // ═══════════════════════════════════════════════════════════
 
-function scanDependencyConfusion(dir, ecosystems, filterEco) {
+async function checkPackageExistsOnPublicRegistry(name, ecosystem) {
+  try {
+    if (ecosystem === 'npm') {
+      const res = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}`, {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(5000),
+      });
+      return res.status === 200;
+    }
+    if (ecosystem === 'pip') {
+      const res = await fetch(`https://pypi.org/pypi/${encodeURIComponent(name)}/json`, {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(5000),
+      });
+      return res.status === 200;
+    }
+  } catch { /* network error — assume it doesn't exist */ }
+  return false;
+}
+
+async function scanDependencyConfusion(dir, ecosystems, filterEco) {
   const findings = [];
   for (const eco of ecosystems) {
     if (filterEco !== 'auto' && eco.ecosystem !== filterEco) continue;
     const deps = parseDependencies(dir, eco);
     for (const dep of deps) {
       if (eco.ecosystem === 'npm') {
-        if (dep.name.startsWith('@') && /^@(internal|private|company|corp|org|team|dev|staging|prod)/i.test(dep.name.split('/')[0])) {
-          findings.push({ type: 'dependency_confusion', severity: 'high', package: dep.name, ecosystem: 'npm', summary: `Scoped package "${dep.name}" uses internal-looking scope — dependency confusion target`, remediation: 'Verify scope is registered on npmjs.com. Use .npmrc to enforce private registry.', location: 'package.json' });
+        // Check scoped packages with internal-looking scope names
+        if (dep.name.startsWith('@')) {
+          const scope = dep.name.split('/')[0];
+          if (/^@(internal|private|company|corp|org|team|dev|staging|prod)/i.test(scope)) {
+            // Actually check if this scope/package exists on npm
+            const existsPublic = await checkPackageExistsOnPublicRegistry(dep.name, 'npm');
+            findings.push({
+              type: 'dependency_confusion', severity: existsPublic ? 'medium' : 'critical',
+              package: dep.name, ecosystem: 'npm',
+              summary: existsPublic
+                ? `Scoped package "${dep.name}" exists on public npm — verify it's your org's legitimate package`
+                : `Scoped package "${dep.name}" NOT found on public npm — high dependency confusion risk. Attacker can register it!`,
+              remediation: 'Verify scope ownership on npmjs.com. Use .npmrc to enforce private registry.',
+              location: 'package.json',
+            });
+          }
         }
+
+        // Check unscoped packages with internal naming
         if (/^(internal-|private-|company-|corp-|myorg-)/.test(dep.name)) {
-          findings.push({ type: 'dependency_confusion', severity: 'medium', package: dep.name, ecosystem: 'npm', summary: `Package "${dep.name}" has internal naming pattern — dependency confusion risk`, remediation: 'Use scoped name (@org/pkg) and configure .npmrc for private registry.', location: 'package.json' });
+          const existsPublic = await checkPackageExistsOnPublicRegistry(dep.name, 'npm');
+          findings.push({
+            type: 'dependency_confusion', severity: existsPublic ? 'low' : 'high',
+            package: dep.name, ecosystem: 'npm',
+            summary: existsPublic
+              ? `Package "${dep.name}" has internal naming but exists on npm — verify it's legitimate`
+              : `Package "${dep.name}" has internal naming and does NOT exist on npm — attackers can claim this name!`,
+            remediation: 'Use scoped name (@org/pkg) and configure .npmrc for private registry.',
+            location: 'package.json',
+          });
         }
       }
       if (eco.ecosystem === 'pip' && /^(internal[-_]|private[-_]|company[-_])/.test(dep.name)) {
-        findings.push({ type: 'dependency_confusion', severity: 'medium', package: dep.name, ecosystem: 'pip', summary: `Package "${dep.name}" has internal naming — dependency confusion target on PyPI`, remediation: 'Use --index-url to point to private PyPI.', location: 'requirements.txt' });
+        const existsPublic = await checkPackageExistsOnPublicRegistry(dep.name, 'pip');
+        findings.push({
+          type: 'dependency_confusion', severity: existsPublic ? 'low' : 'high',
+          package: dep.name, ecosystem: 'pip',
+          summary: existsPublic
+            ? `Package "${dep.name}" has internal naming but exists on PyPI — verify it's legitimate`
+            : `Package "${dep.name}" has internal naming and does NOT exist on PyPI — dependency confusion target!`,
+          remediation: 'Use --index-url to point to private PyPI.',
+          location: 'requirements.txt',
+        });
       }
     }
   }
