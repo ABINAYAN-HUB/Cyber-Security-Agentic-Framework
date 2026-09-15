@@ -855,6 +855,9 @@ export class ChatView {
       </div>
       <div class="approval-body">
         <p class="approval-summary">${escapeHtml(summary)}</p>
+        <div id="plan-preview-${cardId}" class="approval-plan-preview markdown-body" style="margin: 12px 0; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); font-size: 0.9em; max-height: 400px; overflow-y: auto;">
+          <div class="spinner" style="width: 14px; height: 14px; display: inline-block; margin-right: 6px; vertical-align: middle;"></div> <span style="vertical-align: middle;">Loading plan details...</span>
+        </div>
         <p class="approval-hint">Review the plan above. The agent is paused and waiting for your decision.</p>
         <div class="approval-actions">
           <button class="btn-proceed" id="btn-proceed-${cardId}">Proceed</button>
@@ -865,6 +868,28 @@ export class ChatView {
     `;
 
     contentEl.appendChild(card);
+
+    // Auto-load plan content
+    if (result.path) {
+      fetch(`/api/file?path=${encodeURIComponent(result.path)}`)
+        .then(res => res.json())
+        .then(data => {
+          const previewEl = document.getElementById(`plan-preview-${cardId}`);
+          if (previewEl && data.content) {
+            previewEl.innerHTML = renderMarkdown(data.content);
+            if (this.autoScroll) this.scrollToBottom();
+          } else if (previewEl) {
+            previewEl.style.display = 'none';
+          }
+        })
+        .catch(err => {
+          const previewEl = document.getElementById(`plan-preview-${cardId}`);
+          if (previewEl) previewEl.style.display = 'none';
+        });
+    } else {
+      const previewEl = document.getElementById(`plan-preview-${cardId}`);
+      if (previewEl) previewEl.style.display = 'none';
+    }
 
     const btnProceed = document.getElementById(`btn-proceed-${cardId}`);
     const btnEdit = document.getElementById(`btn-edit-${cardId}`);
