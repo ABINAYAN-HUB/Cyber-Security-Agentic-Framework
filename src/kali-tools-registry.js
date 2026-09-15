@@ -469,6 +469,53 @@ const KALI_TOOLS = [
     usage: ['uncover -q "apache" -e shodan,censys    # Search Shodan + Censys'] },
   { name: 'interactsh', bin: 'interactsh-client', cat: 'web-application', desc: 'OOB interaction gathering for SSRF/XXE/RCE', install: 'go install github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest', mitre: ['T1190'],
     usage: ['interactsh-client                       # Start OOB listener, get unique URL'] },
+
+  // ═══ SUPPLY CHAIN SECURITY ═══
+  { name: 'trivy', bin: 'trivy', cat: 'supply-chain', desc: 'Comprehensive vulnerability scanner for containers, filesystems, repos, and SBOM', install: 'curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin', mitre: ['T1195'],
+    usage: [
+      'trivy fs .                                # Scan current directory for vulns',
+      'trivy image alpine:latest                 # Scan Docker image',
+      'trivy repo https://github.com/org/repo   # Scan Git repo',
+      'trivy sbom --format cyclonedx .           # Generate SBOM',
+      'trivy config .                            # Scan IaC misconfigs (Dockerfile, K8s, Terraform)',
+      'trivy fs --severity HIGH,CRITICAL .       # Only high/critical findings',
+    ]},
+  { name: 'grype', bin: 'grype', cat: 'supply-chain', desc: 'Vulnerability scanner for container images and filesystems', install: 'curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin', mitre: ['T1195'],
+    usage: [
+      'grype dir:.                               # Scan directory',
+      'grype alpine:latest                       # Scan image',
+      'grype sbom:./sbom.json                    # Scan existing SBOM',
+      'grype dir:. -o json                       # JSON output',
+    ]},
+  { name: 'syft', bin: 'syft', cat: 'supply-chain', desc: 'SBOM generator for container images, filesystems, and archives', install: 'curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin', mitre: ['T1195'],
+    usage: [
+      'syft dir:.                                # Generate SBOM for directory',
+      'syft alpine:latest                        # Generate SBOM for image',
+      'syft dir:. -o cyclonedx-json              # CycloneDX SBOM format',
+      'syft dir:. -o spdx-json                   # SPDX SBOM format',
+    ]},
+  { name: 'pip-audit', bin: 'pip-audit', cat: 'supply-chain', desc: 'Python dependency vulnerability scanner using PyPI advisory DB', install: 'pip install pip-audit', mitre: ['T1195'],
+    usage: [
+      'pip-audit                                 # Audit current Python env',
+      'pip-audit -r requirements.txt             # Audit requirements file',
+      'pip-audit --format=json                   # JSON output',
+      'pip-audit --fix --dry-run                 # Show what would be fixed',
+    ]},
+  { name: 'scorecard', bin: 'scorecard', cat: 'supply-chain', desc: 'OpenSSF Scorecard — security health metrics for open source projects', install: 'go install github.com/ossf/scorecard/v5/cmd/scorecard@latest', mitre: ['T1195'],
+    usage: [
+      'scorecard --repo=github.com/org/repo      # Score an OSS project',
+      'scorecard --repo=github.com/org/repo --format=json  # JSON output',
+    ]},
+  { name: 'chain-bench', bin: 'chain-bench', cat: 'supply-chain', desc: 'CIS Software Supply Chain Security benchmark audit', install: 'go install github.com/aquasecurity/chain-bench@latest', mitre: ['T1195'],
+    usage: [
+      'chain-bench --repository-url=https://github.com/org/repo  # Benchmark repo',
+    ]},
+  { name: 'cosign', bin: 'cosign', cat: 'supply-chain', desc: 'Container image signing and verification — software supply chain integrity', install: 'go install github.com/sigstore/cosign/v2/cmd/cosign@latest', mitre: ['T1195'],
+    usage: [
+      'cosign verify --key cosign.pub IMAGE      # Verify signed image',
+      'cosign sign --key cosign.key IMAGE         # Sign container image',
+      'cosign tree IMAGE                          # Display supply chain security artifacts',
+    ]},
 ];
 
 // ═══════════════════════════════════════════════════════════

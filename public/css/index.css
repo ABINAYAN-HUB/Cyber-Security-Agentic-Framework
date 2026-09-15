@@ -2341,3 +2341,164 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
+/* ══════════════════════════════════════════════
+   SUPPLY CHAIN ATTACK CENTER
+   ══════════════════════════════════════════════ */
+
+.sc-hero {
+  border-color: rgba(244, 63, 94, 0.2) !important;
+  background: linear-gradient(135deg, rgba(244,63,94,0.03), rgba(139,92,246,0.03), rgba(0,240,255,0.02)) !important;
+}
+
+.sc-hero-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.sc-hero-icon {
+  font-size: 1.5rem;
+  filter: drop-shadow(0 0 8px rgba(244,63,94,0.4));
+}
+
+.sc-hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sc-badge {
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.03em;
+}
+
+.sc-badge-npm { background: rgba(203,56,55,0.12); color: #cb3837; }
+.sc-badge-pypi { background: rgba(55,118,171,0.12); color: #3776ab; }
+.sc-badge-maven { background: rgba(197,76,51,0.12); color: #c54c33; }
+.sc-badge-go { background: rgba(0,173,216,0.12); color: #00add8; }
+.sc-badge-cargo { background: rgba(222,165,88,0.12); color: #dea558; }
+.sc-badge-composer, .sc-badge-Packagist { background: rgba(247,148,31,0.12); color: #f7941f; }
+.sc-badge-ruby, .sc-badge-RubyGems { background: rgba(204,52,45,0.12); color: #cc342d; }
+.sc-badge-pip, .sc-badge-PyPI { background: rgba(55,118,171,0.12); color: #3776ab; }
+.sc-badge-NuGet, .sc-badge-nuget { background: rgba(0,120,212,0.12); color: #0078d4; }
+
+.sc-scan-panel {
+  border-color: rgba(0, 240, 255, 0.15) !important;
+}
+
+.sc-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--sp-3);
+}
+
+.sc-quick-btn {
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.sc-quick-btn:hover {
+  background: rgba(0,240,255,0.06);
+  border-color: rgba(0,240,255,0.2);
+  color: var(--cyan);
+}
+
+.sc-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--cyan), #f43f5e, var(--violet));
+  border-radius: 4px;
+  transition: width 0.5s ease;
+  animation: sc-pulse 2s ease-in-out infinite;
+}
+
+@keyframes sc-pulse {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+/* Attack Vector Cards */
+.sc-attack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+}
+
+.sc-vector-card {
+  display: flex;
+  gap: 12px;
+  padding: var(--sp-3);
+  border-radius: var(--radius-md);
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+  transition: all var(--transition-fast);
+}
+
+.sc-vector-card:hover {
+  border-color: rgba(244,63,94,0.2);
+  background: rgba(244,63,94,0.03);
+  transform: translateY(-1px);
+}
+
+.sc-vector-icon {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.sc-vector-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.sc-vector-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+
+.sc-vector-desc {
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin-bottom: 6px;
+}
+
+.sc-vector-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sc-vector-mitre {
+  font-size: 0.62rem;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+
+@media (max-width: 600px) {
+  .sc-attack-grid {
+    grid-template-columns: 1fr;
+  }
+  .sc-hero-badges {
+    margin-top: 8px;
+  }
+}
+

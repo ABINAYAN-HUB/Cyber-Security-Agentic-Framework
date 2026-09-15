@@ -502,6 +502,30 @@ export async function startWebServer(options = {}) {
   }
 
   // ═══════════════════════════════════════════
+  // SUPPLY CHAIN ATTACK API
+  // ═══════════════════════════════════════════
+
+  app.post('/api/supply-chain/scan', async (req, res) => {
+    try {
+      const { execute } = await import('./tools/supply-chain-scanner.js');
+      const result = await execute(req.body);
+      res.json(result);
+    } catch (err) {
+      res.json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/supply-chain/lookup', async (req, res) => {
+    try {
+      const { executeLookup } = await import('./tools/supply-chain-scanner.js');
+      const result = await executeLookup(req.body);
+      res.json(result);
+    } catch (err) {
+      res.json({ success: false, error: err.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════
   // BRON KNOWLEDGE GRAPH API
   // ═══════════════════════════════════════════
 

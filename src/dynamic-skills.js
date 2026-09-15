@@ -109,6 +109,10 @@ class DynamicSkillEngine {
       decomposition.type = 'reconnaissance';
       decomposition.phases = ['passive_recon', 'active_recon', 'enumeration', 'analysis'];
       decomposition.requiredCapabilities = ['dns_resolution', 'port_scanning', 'service_detection', 'web_crawling'];
+    } else if (/supply.?chain|dependency|typosquat|package.?poison|sbom|ci.?cd.?attack|pipeline.?attack|backdoor.?package|dependency.?confusion/i.test(lower)) {
+      decomposition.type = 'supply_chain';
+      decomposition.phases = ['dependency_enumeration', 'vulnerability_assessment', 'typosquatting_detection', 'confusion_analysis', 'cicd_audit', 'container_analysis', 'secret_scanning', 'sbom_generation', 'reporting'];
+      decomposition.requiredCapabilities = ['package_analysis', 'lockfile_parsing', 'osv_lookup', 'cicd_scanning', 'docker_analysis', 'secret_detection', 'sbom_generation'];
     } else if (/exploit|hack|pwn|compromise|attack|penetrat|breach/i.test(lower)) {
       decomposition.type = 'full_pentest';
       decomposition.phases = ['reconnaissance', 'vulnerability_analysis', 'exploitation', 'post_exploitation', 'reporting'];
@@ -161,6 +165,7 @@ class DynamicSkillEngine {
 - Reverse Engineering / Malware Analysis
 - Bug Bounty Hunting
 - IoT/Embedded Device Testing
+- **Supply Chain Attack** (dependency, typosquatting, CI/CD, Docker, SBOM)
 
 **Dynamic Capabilities**:
 - Auto-install missing tools via \`install_tool\`

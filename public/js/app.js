@@ -7,6 +7,7 @@ import { ToolsView } from './views/tools.js';
 import { IntelView } from './views/intel.js';
 import { ReportsView } from './views/reports.js';
 import { SettingsView } from './views/settings.js';
+import { SupplyChainView } from './views/supply-chain.js';
 
 class App {
   constructor() {
@@ -32,6 +33,7 @@ class App {
       chat: new ChatView(this),
       tools: new ToolsView(this),
       intel: new IntelView(this),
+      'supply-chain': new SupplyChainView(this),
       reports: new ReportsView(this),
       settings: new SettingsView(this),
     };
@@ -102,6 +104,7 @@ class App {
       chat: ['Agent Chat', 'AI Interaction'],
       tools: ['Tools', '150+ Security Tools'],
       intel: ['Threat Intel', 'CVEs, Exploits & IOCs'],
+      'supply-chain': ['Supply Chain', 'Attack & Defense'],
       reports: ['Reports', 'Pentest Reports'],
       settings: ['Settings', 'Configuration'],
     };
