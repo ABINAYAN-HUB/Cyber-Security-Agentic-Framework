@@ -43,7 +43,7 @@ import { bronLookup, bronAttackChain, bronFindDefenses, bronProductRisks } from 
 import * as installTool from './install-tool.js';
 
 // ═══ SUPPLY CHAIN ATTACK SCANNER ═══
-import { definition as scScanDef, execute as scScanExec, lookupDefinition as scLookupDef, executeLookup as scLookupExec } from './supply-chain-scanner.js';
+import { definition as scScanDef, execute as scScanExec, lookupDefinition as scLookupDef, executeLookup as scLookupExec, attackDefinition as scAttackDef, executeAttack as scAttackExec } from './supply-chain-scanner.js';
 
 // ═══ PROJECTDISCOVERY TOOLS ═══
 import {
@@ -110,6 +110,7 @@ const tools = [
   // ═══ Supply Chain Attack Scanner ═══
   { definition: scScanDef, execute: scScanExec },
   { definition: scLookupDef, execute: scLookupExec },
+  { definition: scAttackDef, execute: scAttackExec },
 ];
 
 // Tool definitions for the API (OpenAI function calling format)
@@ -131,7 +132,7 @@ export const safeTools = new Set([
   'fofa_search', 'subfinder_enum', 'httpx_probe', 'dnsx_resolve',
   'uncover_search', 'katana_crawl', 'generate_report',
   'bron_lookup', 'bron_attack_chain', 'bron_find_defenses', 'bron_product_risks',
-  'supply_chain_scan', 'supply_chain_lookup',
+  'supply_chain_scan', 'supply_chain_lookup', 'supply_chain_attack',
 ]);
 
 export const writeTools = new Set([

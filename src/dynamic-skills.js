@@ -111,8 +111,26 @@ class DynamicSkillEngine {
       decomposition.requiredCapabilities = ['dns_resolution', 'port_scanning', 'service_detection', 'web_crawling'];
     } else if (/supply.?chain|dependency|typosquat|package.?poison|sbom|ci.?cd.?attack|pipeline.?attack|backdoor.?package|dependency.?confusion/i.test(lower)) {
       decomposition.type = 'supply_chain';
-      decomposition.phases = ['dependency_enumeration', 'vulnerability_assessment', 'typosquatting_detection', 'confusion_analysis', 'cicd_audit', 'container_analysis', 'secret_scanning', 'sbom_generation', 'reporting'];
-      decomposition.requiredCapabilities = ['package_analysis', 'lockfile_parsing', 'osv_lookup', 'cicd_scanning', 'docker_analysis', 'secret_detection', 'sbom_generation'];
+      decomposition.phases = [
+        'supply_chain_recon',         // Scan target's repos, map all dependencies, CI/CD pipelines, Docker
+        'vendor_osint',               // OSINT the target org — find npm scopes, PyPI packages, GitHub org
+        'dependency_analysis',        // Analyze all deps for vulns, identify typosquatting & confusion targets
+        'cicd_exploit_mapping',       // Map CI/CD attack surface — unpinned actions, dangerous triggers, secrets
+        'attack_vector_selection',    // Choose best attack vector based on findings
+        'payload_creation',           // Build malicious packages, CI/CD exploit payloads, trojanized containers
+        'delivery',                   // Publish to registries, submit poisoned PRs, exploit build systems
+        'exploitation',              // Execute the supply chain compromise — gain code execution in target
+        'credential_harvesting',     // Extract secrets, tokens, API keys from compromised build environment
+        'lateral_movement',          // Pivot from CI/CD to cloud infra, production systems, private repos
+        'persistence',               // Modify CI/CD pipelines for persistent access, backdoor deployments
+        'exfiltration',             // Extract source code, databases, customer data
+      ];
+      decomposition.requiredCapabilities = [
+        'supply_chain_scan', 'package_lookup', 'lockfile_parsing', 'osv_lookup',
+        'cicd_scanning', 'docker_analysis', 'secret_detection', 'sbom_generation',
+        'package_creation', 'registry_publish', 'git_operations', 'reverse_shell',
+        'credential_extraction', 'cloud_exploitation', 'persistence_mechanisms',
+      ];
     } else if (/exploit|hack|pwn|compromise|attack|penetrat|breach/i.test(lower)) {
       decomposition.type = 'full_pentest';
       decomposition.phases = ['reconnaissance', 'vulnerability_analysis', 'exploitation', 'post_exploitation', 'reporting'];

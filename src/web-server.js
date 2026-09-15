@@ -525,6 +525,16 @@ export async function startWebServer(options = {}) {
     }
   });
 
+  app.post('/api/supply-chain/attack', async (req, res) => {
+    try {
+      const { executeAttack } = await import('./tools/supply-chain-scanner.js');
+      const result = await executeAttack(req.body);
+      res.json(result);
+    } catch (err) {
+      res.json({ success: false, error: err.message });
+    }
+  });
+
   // ═══════════════════════════════════════════
   // BRON KNOWLEDGE GRAPH API
   // ═══════════════════════════════════════════

