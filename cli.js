@@ -116,8 +116,7 @@ else if (args.includes('--update-bron')) {
   import('./src/bron-bootstrap.js').then(async ({ bootstrapBRON }) => {
     try {
       const fresh = args.includes('--fresh');
-      const fullHistory = args.includes('--full-history');
-      const result = await bootstrapBRON({ fresh, fullHistory });
+      const result = await bootstrapBRON({ fresh });
       process.exit(result ? 0 : 1);
     } catch (err) {
       console.error(`Fatal: ${err.message}`);

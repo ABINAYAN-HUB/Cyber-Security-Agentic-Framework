@@ -2197,6 +2197,134 @@ input[type="range"]::-webkit-slider-thumb {
   100% { background-position: -200% 0; }
 }
 
+/* ══════════════════════════════════════════════
+   CVE Attack↔Defense Graph Visualization
+   ══════════════════════════════════════════════ */
+
+.cve-graph-container {
+  width: 100%;
+  overflow-x: auto;
+  padding: var(--sp-3) 0;
+  margin-bottom: var(--sp-3);
+}
+
+.cve-graph-container svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.cve-graph-container svg text {
+  font-family: var(--font-sans);
+}
+
+.cve-graph-node {
+  cursor: default;
+  transition: opacity 0.2s ease;
+}
+
+.cve-graph-node:hover {
+  opacity: 0.9;
+}
+
+/* Enhanced defense section */
+.cve-defense-section-enhanced {
+  border-color: rgba(16, 185, 129, 0.25) !important;
+}
+
+.cve-defense-card-v2 {
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius-md);
+  background: rgba(16, 185, 129, 0.04);
+  border: 1px solid rgba(16, 185, 129, 0.12);
+  transition: all var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.cve-defense-card-v2::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, #10b981, #06b6d4);
+  border-radius: 3px 0 0 3px;
+}
+
+.cve-defense-card-v2:hover {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
+  transform: translateX(2px);
+}
+
+.cve-defense-card-v2 .def-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.cve-defense-card-v2 .def-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.cve-defense-card-v2 .def-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #10b981;
+}
+
+.cve-defense-card-v2 .def-id {
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.cve-defense-card-v2 .def-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-left: 28px;
+}
+
+.cve-defense-card-v2 .def-category {
+  display: inline-block;
+  margin-left: 28px;
+  margin-top: 6px;
+  font-size: 0.62rem;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+
+.cve-defense-card-v2 .def-mitigation {
+  margin-left: 28px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.cve-defense-card-v2 .def-mitigation code {
+  background: rgba(0, 240, 255, 0.08);
+  color: var(--cyan);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.72rem;
+}
+
 /* Responsive detail panel */
 @media (max-width: 600px) {
   .cve-detail-panel {

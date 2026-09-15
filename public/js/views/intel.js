@@ -892,23 +892,11 @@ export class IntelView {
           </div>
         ` : ''}
 
-        <!-- Recommended Defenses -->
-        ${defenses.length > 0 ? `
-          <div class="cve-detail-section" style="border-color:rgba(16,185,129,0.2);">
-            <div class="cve-detail-section-header" style="color:#10b981;">🛡️ Recommended Defenses (D3FEND)</div>
-            <div class="cve-detail-section-body">
-              <div class="cve-defense-grid">
-                ${defenses.map(d => `
-                  <div class="cve-defense-card">
-                    <div class="cve-defense-name">🛡️ ${this._escapeHtml(d.name || d.id || '')}</div>
-                    ${d.description ? `<div class="cve-defense-desc">${this._escapeHtml(d.description)}</div>` : ''}
-                    ${d.category ? `<div class="cve-defense-category">${d.category}</div>` : ''}
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          </div>
-        ` : ''}
+        <!-- Attack ↔ Defense Graph Visualization -->
+        ${this._renderAttackDefenseGraph(cve, cwes, capecs, techniques, tactics, defenses)}
+
+        <!-- Recommended Defenses (Enhanced) -->
+        ${this._renderDefenseSection(cve, cwes, capecs, techniques, defenses)}
 
         <!-- Affected Products -->
         ${cpes.length > 0 ? `
@@ -931,6 +919,299 @@ export class IntelView {
         ` : ''}
       </div>
     `;
+  }
+
+  // ═══════════════════════════════════════════════
+  // ATTACK ↔ DEFENSE GRAPH (SVG)
+  // ═══════════════════════════════════════════════
+
+  _renderAttackDefenseGraph(cve, cwes, capecs, techniques, tactics, defenses) {
+    // Build nodes for the graph: CVE → CWE → CAPEC → Technique → Tactic (left), Defenses (right)
+    const hasAttackChain = cwes.length + capecs.length + techniques.length + tactics.length > 0;
+    const hasDefenses = defenses.length > 0;
+    if (!hasAttackChain && !hasDefenses) return '';
+
+    // Collect all node groups
+    const attackNodes = [];
+    const defenseNodes = [];
+
+    // CVE node (center-left)
+    attackNodes.push({ id: cve.id || 'CVE', label: cve.id || 'CVE', type: 'cve', color: '#ec4899' });
+
+    // CWEs
+    cwes.slice(0, 3).forEach(c => {
+      attackNodes.push({ id: c.id, label: c.id, sublabel: (c.name || '').slice(0, 25), type: 'cwe', color: '#ef4444' });
+    });
+
+    // CAPECs
+    capecs.slice(0, 3).forEach(c => {
+      attackNodes.push({ id: c.id, label: c.id, sublabel: (c.name || '').slice(0, 25), type: 'capec', color: '#f59e0b' });
+    });
+
+    // Techniques
+    techniques.slice(0, 3).forEach(t => {
+      attackNodes.push({ id: t.id, label: t.id, sublabel: (t.name || '').slice(0, 25), type: 'technique', color: '#f43f5e' });
+    });
+
+    // Tactics
+    tactics.slice(0, 2).forEach(t => {
+      attackNodes.push({ id: t.id, label: t.id, sublabel: (t.name || '').slice(0, 25), type: 'tactic', color: '#8b5cf6' });
+    });
+
+    // Defenses
+    defenses.slice(0, 5).forEach(d => {
+      defenseNodes.push({ id: d.id || d.name, label: (d.name || d.id || '').slice(0, 22), sublabel: d.category || '', type: 'd3fend', color: '#10b981' });
+    });
+
+    // Layout params
+    const nodeW = 140, nodeH = 48, gapY = 14, gapX = 50;
+    const attackCount = attackNodes.length;
+    const defenseCount = defenseNodes.length;
+    const maxRows = Math.max(attackCount, defenseCount, 1);
+    const svgH = maxRows * (nodeH + gapY) + 60;
+    const svgW = defenseCount > 0 ? (nodeW * 2 + gapX * 3 + 100) : (nodeW + gapX * 2 + 100);
+    const centerX = defenseCount > 0 ? svgW / 2 : svgW / 2;
+
+    // Compute positions
+    const attackX = defenseCount > 0 ? centerX - gapX / 2 - nodeW : centerX - nodeW / 2;
+    const defenseX = centerX + gapX / 2;
+    const attackStartY = (svgH - attackCount * (nodeH + gapY)) / 2 + 20;
+    const defenseStartY = (svgH - defenseCount * (nodeH + gapY)) / 2 + 20;
+
+    let svg = `<svg width="100%" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg" style="max-width:${svgW}px;">`;
+
+    // Title
+    svg += `<text x="${svgW / 2}" y="16" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600" letter-spacing="0.08em">ATTACK → DEFENSE RELATIONSHIP GRAPH</text>`;
+
+    // Draw connection lines (attack → defense, flowing right)
+    if (defenseCount > 0 && attackCount > 0) {
+      // Draw lines from last attack node (technique/tactic) to each defense
+      const srcIdx = attackCount - 1; // bottom-most attack node
+      const srcY = attackStartY + srcIdx * (nodeH + gapY) + nodeH / 2;
+      const srcX2 = attackX + nodeW;
+
+      for (let d = 0; d < defenseCount; d++) {
+        const dstY = defenseStartY + d * (nodeH + gapY) + nodeH / 2;
+        const dstX1 = defenseX;
+        const midX = (srcX2 + dstX1) / 2;
+        svg += `<path d="M${srcX2},${srcY} C${midX},${srcY} ${midX},${dstY} ${dstX1},${dstY}" fill="none" stroke="rgba(16,185,129,0.3)" stroke-width="1.5" stroke-dasharray="4 3">
+          <animate attributeName="stroke-dashoffset" from="28" to="0" dur="2s" repeatCount="indefinite"/>
+        </path>`;
+        // Arrow
+        svg += `<polygon points="${dstX1},${dstY} ${dstX1 - 6},${dstY - 3} ${dstX1 - 6},${dstY + 3}" fill="rgba(16,185,129,0.5)"/>`;
+      }
+
+      // Draw connector lines between sequential attack nodes
+      for (let i = 0; i < attackCount - 1; i++) {
+        const y1 = attackStartY + i * (nodeH + gapY) + nodeH;
+        const y2 = attackStartY + (i + 1) * (nodeH + gapY);
+        const cx = attackX + nodeW / 2;
+        svg += `<line x1="${cx}" y1="${y1}" x2="${cx}" y2="${y2}" stroke="rgba(244,63,94,0.25)" stroke-width="1.5"/>`;
+        svg += `<polygon points="${cx},${y2} ${cx - 3},${y2 - 5} ${cx + 3},${y2 - 5}" fill="rgba(244,63,94,0.4)"/>`;
+      }
+    } else if (attackCount > 1) {
+      // No defenses — still draw attack chain lines
+      for (let i = 0; i < attackCount - 1; i++) {
+        const y1 = attackStartY + i * (nodeH + gapY) + nodeH;
+        const y2 = attackStartY + (i + 1) * (nodeH + gapY);
+        const cx = attackX + nodeW / 2;
+        svg += `<line x1="${cx}" y1="${y1}" x2="${cx}" y2="${y2}" stroke="rgba(244,63,94,0.25)" stroke-width="1.5"/>`;
+        svg += `<polygon points="${cx},${y2} ${cx - 3},${y2 - 5} ${cx + 3},${y2 - 5}" fill="rgba(244,63,94,0.4)"/>`;
+      }
+    }
+
+    // Draw attack nodes
+    attackNodes.forEach((node, i) => {
+      const x = attackX;
+      const y = attackStartY + i * (nodeH + gapY);
+      svg += this._svgNode(x, y, nodeW, nodeH, node);
+    });
+
+    // Draw defense nodes
+    defenseNodes.forEach((node, i) => {
+      const x = defenseX;
+      const y = defenseStartY + i * (nodeH + gapY);
+      svg += this._svgNode(x, y, nodeW, nodeH, node);
+    });
+
+    // Legend
+    const legendY = svgH - 8;
+    const legendItems = [
+      { label: 'CVE', color: '#ec4899' },
+      { label: 'CWE', color: '#ef4444' },
+      { label: 'CAPEC', color: '#f59e0b' },
+      { label: 'Technique', color: '#f43f5e' },
+      { label: 'Tactic', color: '#8b5cf6' },
+    ];
+    if (defenseCount > 0) legendItems.push({ label: 'Defense', color: '#10b981' });
+
+    let lx = 10;
+    legendItems.forEach(item => {
+      svg += `<rect x="${lx}" y="${legendY - 7}" width="8" height="8" rx="2" fill="${item.color}" opacity="0.7"/>`;
+      svg += `<text x="${lx + 12}" y="${legendY}" fill="#64748b" font-size="8">${item.label}</text>`;
+      lx += item.label.length * 5.5 + 22;
+    });
+
+    svg += `</svg>`;
+
+    return `
+      <div class="cve-detail-section" style="border-color:rgba(139,92,246,0.2);">
+        <div class="cve-detail-section-header" style="color:#a78bfa;">🔗 Attack ↔ Defense Graph</div>
+        <div class="cve-detail-section-body">
+          <div class="cve-graph-container">${svg}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  _svgNode(x, y, w, h, node) {
+    const fill = node.type === 'd3fend' ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.03)';
+    const stroke = node.color + '44';
+    const icon = {
+      'cve': '🐛', 'cwe': '🔓', 'capec': '⚡', 'technique': '⚔️', 'tactic': '🎯', 'd3fend': '🛡️'
+    }[node.type] || '•';
+
+    let svg = `<g class="cve-graph-node">`;
+    svg += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
+    // Icon + label
+    svg += `<text x="${x + 8}" y="${y + 18}" font-size="11">${icon}</text>`;
+    svg += `<text x="${x + 24}" y="${y + 18}" fill="${node.color}" font-size="10" font-weight="700">${this._escapeHtml(node.label)}</text>`;
+    if (node.sublabel) {
+      svg += `<text x="${x + 8}" y="${y + 34}" fill="#64748b" font-size="8">${this._escapeHtml(node.sublabel)}</text>`;
+    }
+    svg += `</g>`;
+    return svg;
+  }
+
+  // ═══════════════════════════════════════════════
+  // DEFENSE SECTION (ENHANCED)
+  // ═══════════════════════════════════════════════
+
+  _renderDefenseSection(cve, cwes, capecs, techniques, defenses) {
+    // Merge D3FEND defenses + generate CWE-based generic recommendations
+    const allDefenses = [...defenses];
+    const seenIds = new Set(defenses.map(d => d.id || d.name));
+
+    // Generate CWE-based defense recommendations as fallback
+    const cweDefenses = this._getCWEDefenses(cwes);
+    for (const wd of cweDefenses) {
+      if (!seenIds.has(wd.id)) {
+        seenIds.add(wd.id);
+        allDefenses.push(wd);
+      }
+    }
+
+    // Generate generic defenses based on severity if we still have none
+    if (allDefenses.length === 0) {
+      allDefenses.push(...this._getGenericDefenses(cve));
+    }
+
+    if (allDefenses.length === 0) return '';
+
+    const categoryIcons = {
+      'Detect': '🔍', 'Harden': '🔒', 'Isolate': '🧱', 'Deceive': '🎭',
+      'Evict': '🚫', 'Monitor': '📡', 'Model': '📐', 'Unknown': '🛡️',
+    };
+
+    return `
+      <div class="cve-detail-section cve-defense-section-enhanced" style="border-color:rgba(16,185,129,0.2);">
+        <div class="cve-detail-section-header" style="color:#10b981;">🛡️ Defensive Mechanisms & Countermeasures (${allDefenses.length})</div>
+        <div class="cve-detail-section-body">
+          <div class="text-xs text-muted" style="margin-bottom: var(--sp-3);">
+            Recommended defensive techniques to detect, prevent, and mitigate this vulnerability. ${defenses.length > 0 ? 'Sources: MITRE D3FEND ontology.' : 'Sources: CWE mitigation database.'}
+          </div>
+          <div style="display:flex; flex-direction:column; gap: 10px;">
+            ${allDefenses.map(d => {
+              const cat = d.category || 'Unknown';
+              const icon = categoryIcons[cat] || '🛡️';
+              const mitigation = d.mitigation || '';
+              return `
+                <div class="cve-defense-card-v2">
+                  <div class="def-header">
+                    <span class="def-icon">${icon}</span>
+                    <span class="def-name">${this._escapeHtml(d.name || d.id || '')}</span>
+                    ${d.id ? `<span class="def-id">${this._escapeHtml(d.id)}</span>` : ''}
+                  </div>
+                  ${d.description ? `<div class="def-desc">${this._escapeHtml(d.description)}</div>` : ''}
+                  ${cat !== 'Unknown' ? `<span class="def-category">${cat}</span>` : ''}
+                  ${mitigation ? `<div class="def-mitigation">${mitigation}</div>` : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Map CWE IDs to practical defense recommendations
+  _getCWEDefenses(cwes) {
+    const map = {
+      'CWE-79': [
+        { id: 'DEF-XSS-1', name: 'Output Encoding / Escaping', description: 'Encode all untrusted data before rendering in HTML, JavaScript, CSS, or URL contexts.', category: 'Harden', mitigation: 'Use context-aware encoders: <code>htmlspecialchars()</code> (PHP), <code>DOMPurify.sanitize()</code> (JS), or template engine auto-escaping (React, Jinja2). Apply Content-Security-Policy headers.' },
+        { id: 'DEF-XSS-2', name: 'Content Security Policy', description: 'Deploy CSP headers to prevent inline script execution and restrict script sources.', category: 'Isolate', mitigation: 'Set <code>Content-Security-Policy: default-src \'self\'; script-src \'self\'</code> in HTTP response headers.' },
+      ],
+      'CWE-89': [
+        { id: 'DEF-SQLI-1', name: 'Parameterized Queries', description: 'Use prepared statements or parameterized queries for all database interactions.', category: 'Harden', mitigation: 'Replace string concatenation with parameterized queries: <code>db.query("SELECT * FROM users WHERE id = ?", [userId])</code>. Use ORM frameworks (SQLAlchemy, Sequelize, Hibernate).' },
+        { id: 'DEF-SQLI-2', name: 'Input Validation & WAF', description: 'Validate and sanitize all user input. Deploy a Web Application Firewall.', category: 'Detect', mitigation: 'Whitelist-validate input types/lengths. Deploy ModSecurity or cloud WAF (Cloudflare, AWS WAF) to catch known SQLi patterns.' },
+      ],
+      'CWE-78': [
+        { id: 'DEF-CMDI-1', name: 'Avoid OS Command Execution', description: 'Use language-native APIs instead of shelling out. If unavoidable, use strict allowlists.', category: 'Harden', mitigation: 'Replace <code>os.system()</code> / <code>exec()</code> with native library calls. If shell is needed, allowlist characters: <code>/^[a-zA-Z0-9._-]+$/</code>' },
+      ],
+      'CWE-22': [
+        { id: 'DEF-TRAV-1', name: 'Path Canonicalization', description: 'Canonicalize file paths and verify they resolve within the intended base directory.', category: 'Harden', mitigation: 'Use <code>path.resolve()</code> and verify the result starts with the base directory. Reject paths containing <code>../</code> or <code>..\\\\</code>.' },
+      ],
+      'CWE-287': [
+        { id: 'DEF-AUTH-1', name: 'Multi-Factor Authentication', description: 'Require multiple authentication factors for sensitive operations.', category: 'Harden', mitigation: 'Implement TOTP (Google Authenticator), WebAuthn/FIDO2, or SMS-based 2FA. Enforce MFA for admin accounts and privileged actions.' },
+      ],
+      'CWE-502': [
+        { id: 'DEF-DESER-1', name: 'Safe Deserialization', description: 'Avoid deserializing untrusted data. Use allowlists for permitted classes.', category: 'Harden', mitigation: 'Use JSON instead of native serialization. If native deserialization is required, use <code>ObjectInputFilter</code> (Java) or type-safe alternatives.' },
+      ],
+      'CWE-200': [
+        { id: 'DEF-INFO-1', name: 'Error Handling & Data Masking', description: 'Return generic error messages. Mask sensitive data in logs and responses.', category: 'Harden', mitigation: 'Never expose stack traces, database errors, or internal paths to end users. Use custom error pages and structured logging.' },
+      ],
+      'CWE-119': [
+        { id: 'DEF-BOF-1', name: 'Memory-Safe Languages & Mitigations', description: 'Use memory-safe languages (Rust, Go) or enable compiler protections.', category: 'Harden', mitigation: 'Enable ASLR, DEP/NX, Stack Canaries (<code>-fstack-protector-strong</code>), and CFI. Use <code>strncpy</code> instead of <code>strcpy</code>. Prefer Rust/Go for new code.' },
+      ],
+      'CWE-20': [
+        { id: 'DEF-INPUT-1', name: 'Input Validation Framework', description: 'Validate all input against strict type, length, format, and range constraints.', category: 'Harden', mitigation: 'Use validation libraries (Joi, Zod, marshmallow). Apply whitelist validation: reject by default, accept known-good patterns only.' },
+      ],
+      'CWE-352': [
+        { id: 'DEF-CSRF-1', name: 'Anti-CSRF Tokens', description: 'Include unique, unpredictable tokens in state-changing requests.', category: 'Harden', mitigation: 'Use framework CSRF middleware (Django CSRF, Express csurf). Set <code>SameSite=Strict</code> on cookies.' },
+      ],
+      'CWE-611': [
+        { id: 'DEF-XXE-1', name: 'Disable External Entities', description: 'Disable DTD processing and external entity resolution in XML parsers.', category: 'Harden', mitigation: 'Set <code>XMLReader.setFeature("http://xml.org/sax/features/external-general-entities", false)</code>. Use JSON instead of XML where possible.' },
+      ],
+      'CWE-918': [
+        { id: 'DEF-SSRF-1', name: 'URL Allowlisting & Network Segmentation', description: 'Restrict outbound requests to approved domains/IPs. Block internal network access.', category: 'Isolate', mitigation: 'Allowlist permitted URLs. Block requests to <code>127.0.0.1</code>, <code>169.254.169.254</code> (cloud metadata), and RFC1918 ranges. Use a proxy for outbound requests.' },
+      ],
+    };
+
+    const results = [];
+    for (const cwe of cwes) {
+      const cweId = cwe.id || '';
+      if (map[cweId]) {
+        results.push(...map[cweId]);
+      }
+    }
+    return results;
+  }
+
+  // Generic fallback defenses based on severity
+  _getGenericDefenses(cve) {
+    const severity = (cve.severity || '').toUpperCase();
+    const defenses = [
+      { id: 'GEN-PATCH', name: 'Apply Vendor Patches', description: 'Install the latest security patches from the affected software vendor.', category: 'Harden', mitigation: 'Check vendor advisories and apply patches immediately for critical/high severity. Automate patch management with tools like <code>unattended-upgrades</code> (Linux) or WSUS (Windows).' },
+      { id: 'GEN-MONITOR', name: 'Network & Endpoint Monitoring', description: 'Monitor for exploitation attempts using IDS/IPS and endpoint detection.', category: 'Detect', mitigation: 'Deploy Suricata/Snort IDS rules targeting this CVE. Enable endpoint logging (Sysmon, auditd) and centralize with SIEM.' },
+    ];
+
+    if (severity === 'CRITICAL' || severity === 'HIGH') {
+      defenses.push(
+        { id: 'GEN-ISOLATE', name: 'Network Segmentation', description: 'Isolate affected systems behind firewalls until patches are applied.', category: 'Isolate', mitigation: 'Place vulnerable systems in a restricted VLAN. Apply firewall rules to limit inbound access to only required services and trusted IPs.' },
+        { id: 'GEN-WAF', name: 'Virtual Patching (WAF)', description: 'Deploy WAF rules to block known exploitation patterns while awaiting a permanent patch.', category: 'Detect', mitigation: 'Create ModSecurity/cloud WAF rules to detect and block known exploit payloads targeting this vulnerability.' },
+      );
+    }
+    return defenses;
   }
 
   // ═══════════════════════════════════════════════
