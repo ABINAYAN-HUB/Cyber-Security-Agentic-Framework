@@ -498,46 +498,65 @@ async function loadCVEs() {
     console.log(`    ✓ ${label}: ${data.vulnerabilities.length} CVEs`);
   };
 
-  // ═══ 1. Recent CVEs — last 120 days ═══
-  console.log('    📥 Loading recent CVEs (last 120 days)...');
-  const now = new Date();
-  const recentStart = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000);
-  const recentUrl = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${recentStart.toISOString().replace(/\.\d{3}Z/, '')}&pubEndDate=${now.toISOString().replace(/\.\d{3}Z/, '')}&resultsPerPage=2000`;
-  const recentData = await safeFetch(recentUrl);
-  await processCVEResponse(recentData, 'Recent (120d)');
-  await sleep(6500); // NVD rate limit: 5 requests per 30 seconds (no API key)
+  // ═══ FULL HISTORY: Fetch ALL CVEs from 1999 to present ═══
+  // NVD API 2.0 limits: max 120-day date range, max 2000 results per page
+  // We iterate through every 120-day window from 1999-01-01 to today
+  const currentYear = new Date().getFullYear();
+  const startDate = new Date('1999-01-01T00:00:00');
+  const endDate = new Date();
+  const windowMs = 120 * 24 * 60 * 60 * 1000; // 120 days in ms
 
-  // ═══ 2. Historical high-severity CVEs by year (critical/high only) ═══
-  const years = [2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017];
-  for (const year of years) {
-    console.log(`    📥 Loading critical/high CVEs from ${year}...`);
+  // Calculate total windows for progress tracking
+  const totalWindows = Math.ceil((endDate.getTime() - startDate.getTime()) / windowMs);
+  let windowIndex = 0;
 
-    // First half of year
-    const h1Start = `${year}-01-01T00:00:00`;
-    const h1End = `${year}-06-30T23:59:59`;
-    const h1Url = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${h1Start}&pubEndDate=${h1End}&cvssV3Severity=CRITICAL&resultsPerPage=2000`;
-    const h1Data = await safeFetch(h1Url);
-    await processCVEResponse(h1Data, `${year} H1 Critical`);
-    await sleep(6500);
+  console.log(`    📥 Loading FULL CVE history (1999 — ${currentYear}). ${totalWindows} windows to process...`);
+  console.log(`    ⏱️  This will take a while (~${Math.ceil(totalWindows * 7 / 60)} minutes). NVD rate limit: 1 request per 6.5s.`);
 
-    const h1HighUrl = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${h1Start}&pubEndDate=${h1End}&cvssV3Severity=HIGH&resultsPerPage=2000`;
-    const h1HighData = await safeFetch(h1HighUrl);
-    await processCVEResponse(h1HighData, `${year} H1 High`);
-    await sleep(6500);
+  let windowStart = new Date(startDate);
 
-    // Second half of year
-    const h2Start = `${year}-07-01T00:00:00`;
-    const h2End = `${year}-12-31T23:59:59`;
-    const h2Url = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${h2Start}&pubEndDate=${h2End}&cvssV3Severity=CRITICAL&resultsPerPage=2000`;
-    const h2Data = await safeFetch(h2Url);
-    await processCVEResponse(h2Data, `${year} H2 Critical`);
-    await sleep(6500);
+  while (windowStart < endDate) {
+    windowIndex++;
+    let windowEnd = new Date(windowStart.getTime() + windowMs);
+    if (windowEnd > endDate) windowEnd = endDate;
 
-    const h2HighUrl = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${h2Start}&pubEndDate=${h2End}&cvssV3Severity=HIGH&resultsPerPage=2000`;
-    const h2HighData = await safeFetch(h2HighUrl);
-    await processCVEResponse(h2HighData, `${year} H2 High`);
-    await sleep(6500);
+    const startStr = windowStart.toISOString().replace(/\.\d{3}Z/, '');
+    const endStr = windowEnd.toISOString().replace(/\.\d{3}Z/, '');
+    const progress = Math.round((windowIndex / totalWindows) * 100);
+
+    // Paginated fetch — handle windows with >2000 results
+    let startIndex = 0;
+    let totalResults = 1; // Will be set from first response
+    let windowCVECount = 0;
+
+    while (startIndex < totalResults) {
+      const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${startStr}&pubEndDate=${endStr}&resultsPerPage=2000&startIndex=${startIndex}`;
+      const data = await safeFetch(url);
+
+      if (!data) {
+        // API error/timeout — skip to next window
+        console.log(`    ⚠️ [${progress}%] Window ${windowIndex}/${totalWindows} failed (${startStr.slice(0,10)} → ${endStr.slice(0,10)}), skipping...`);
+        break;
+      }
+
+      totalResults = data.totalResults || 0;
+
+      if (data.vulnerabilities && data.vulnerabilities.length > 0) {
+        await processCVEResponse(data, `[${progress}%] ${startStr.slice(0,10)} → ${endStr.slice(0,10)} (offset ${startIndex})`);
+        windowCVECount += data.vulnerabilities.length;
+      }
+
+      startIndex += 2000;
+
+      // Rate limit: NVD allows ~5 requests per 30s without API key ≈ 1 per 6.5s
+      await sleep(6500);
+    }
+
+    // Move to next window
+    windowStart = new Date(windowEnd.getTime() + 1000); // +1s to avoid overlap
   }
+
+  console.log(`    ✅ Full CVE history scan complete. ${allCVEs.length} total CVEs collected.`);
 
   // ═══ 3. CISA Known Exploited Vulnerabilities (KEV) ═══
   // These are actively exploited vulns — the most important ones to have
