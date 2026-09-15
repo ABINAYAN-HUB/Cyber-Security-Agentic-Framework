@@ -28,7 +28,7 @@ async function safeFetchText(url) {
 // ═══════════════════════════════════════════════════════════
 
 export async function bootstrapBRON(options = {}) {
-  const { fresh = false } = options;
+  const { fresh = false, fullHistory = false } = options;
 
   console.log('\n🔗 [BRON Bootstrap] Starting knowledge graph build...');
   console.log('   Linking ATT&CK ↔ CAPEC ↔ CWE ↔ CVE ↔ CPE ↔ D3FEND\n');
@@ -47,7 +47,7 @@ export async function bootstrapBRON(options = {}) {
 
   // Check if already populated
   const hasData = await bronGraph.hasData();
-  if (hasData && !fresh) {
+  if (hasData && !fresh && !fullHistory) {
     console.log('  ✅ BRON graph already populated. Use --fresh to rebuild.');
     const stats = await bronGraph.getStats();
     console.log(`     Nodes: ${stats.totalNodes}, Edges: ${stats.totalEdges}`);
