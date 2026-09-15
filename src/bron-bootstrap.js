@@ -518,14 +518,14 @@ async function loadCVEs(fullHistory = false) {
         let totalResults = 1;
         
         while (startIndex < totalResults) {
-          const url = \`https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=\${chunk.start}&pubEndDate=\${chunk.end}&resultsPerPage=2000&startIndex=\${startIndex}\`;
+          const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${chunk.start}&pubEndDate=${chunk.end}&resultsPerPage=2000&startIndex=${startIndex}`;
           const data = await safeFetch(url);
           
           if (!data) break; // Error or timeout, skip to next chunk
           
           totalResults = data.totalResults || 0;
           if (data.vulnerabilities && data.vulnerabilities.length > 0) {
-            await processCVEResponse(data, \`\${year} Q\${idx + 1} (Offset \${startIndex})\`);
+            await processCVEResponse(data, `${year} Q${idx + 1} (Offset ${startIndex})`);
           }
           
           startIndex += 2000;
@@ -538,7 +538,7 @@ async function loadCVEs(fullHistory = false) {
     console.log('    📥 Loading recent CVEs (last 120 days)...');
     const now = new Date();
     const recentStart = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000);
-    const recentUrl = \`https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=\${recentStart.toISOString().replace(/\\.\\d{3}Z/, '')}&pubEndDate=\${now.toISOString().replace(/\\.\\d{3}Z/, '')}&resultsPerPage=2000\`;
+    const recentUrl = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${recentStart.toISOString().replace(/\.\d{3}Z/, '')}&pubEndDate=${now.toISOString().replace(/\.\d{3}Z/, '')}&resultsPerPage=2000`;
     const recentData = await safeFetch(recentUrl);
     await processCVEResponse(recentData, 'Recent (120d)');
     await sleep(6500); // NVD rate limit: 5 requests per 30 seconds (no API key)
@@ -546,32 +546,32 @@ async function loadCVEs(fullHistory = false) {
     // ═══ 2. Historical high-severity CVEs by year (critical/high only) ═══
     const years = [2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017];
     for (const year of years) {
-      console.log(\`    📥 Loading critical/high CVEs from \${year}...\`);
+      console.log(`    📥 Loading critical/high CVEs from ${year}...`);
 
       // First half of year
-      const h1Start = \`\${year}-01-01T00:00:00\`;
-      const h1End = \`\${year}-06-30T23:59:59\`;
-      const h1Url = \`https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=\${h1Start}&pubEndDate=\${h1End}&cvssV3Severity=CRITICAL&resultsPerPage=2000\`;
+      const h1Start = `${year}-01-01T00:00:00`;
+      const h1End = `${year}-06-30T23:59:59`;
+      const h1Url = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${h1Start}&pubEndDate=${h1End}&cvssV3Severity=CRITICAL&resultsPerPage=2000`;
       const h1Data = await safeFetch(h1Url);
-      await processCVEResponse(h1Data, \`\${year} H1 Critical\`);
+      await processCVEResponse(h1Data, `${year} H1 Critical`);
       await sleep(6500);
 
-      const h1HighUrl = \`https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=\${h1Start}&pubEndDate=\${h1End}&cvssV3Severity=HIGH&resultsPerPage=2000\`;
+      const h1HighUrl = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${h1Start}&pubEndDate=${h1End}&cvssV3Severity=HIGH&resultsPerPage=2000`;
       const h1HighData = await safeFetch(h1HighUrl);
-      await processCVEResponse(h1HighData, \`\${year} H1 High\`);
+      await processCVEResponse(h1HighData, `${year} H1 High`);
       await sleep(6500);
 
       // Second half of year
-      const h2Start = \`\${year}-07-01T00:00:00\`;
-      const h2End = \`\${year}-12-31T23:59:59\`;
-      const h2Url = \`https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=\${h2Start}&pubEndDate=\${h2End}&cvssV3Severity=CRITICAL&resultsPerPage=2000\`;
+      const h2Start = `${year}-07-01T00:00:00`;
+      const h2End = `${year}-12-31T23:59:59`;
+      const h2Url = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${h2Start}&pubEndDate=${h2End}&cvssV3Severity=CRITICAL&resultsPerPage=2000`;
       const h2Data = await safeFetch(h2Url);
-      await processCVEResponse(h2Data, \`\${year} H2 Critical\`);
+      await processCVEResponse(h2Data, `${year} H2 Critical`);
       await sleep(6500);
 
-      const h2HighUrl = \`https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=\${h2Start}&pubEndDate=\${h2End}&cvssV3Severity=HIGH&resultsPerPage=2000\`;
+      const h2HighUrl = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${h2Start}&pubEndDate=${h2End}&cvssV3Severity=HIGH&resultsPerPage=2000`;
       const h2HighData = await safeFetch(h2HighUrl);
-      await processCVEResponse(h2HighData, \`\${year} H2 High\`);
+      await processCVEResponse(h2HighData, `${year} H2 High`);
       await sleep(6500);
     }
   }
