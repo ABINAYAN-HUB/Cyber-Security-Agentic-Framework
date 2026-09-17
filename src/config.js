@@ -56,7 +56,7 @@ const config = {
   // ═══ NVIDIA NIM API ═══
   baseUrl: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
   apiKey: process.env.NVIDIA_API_KEY || '',
-  model: process.env.NVIDIA_MODEL || 'deepseek-ai/deepseek-v4-flash-0731',
+  model: process.env.NVIDIA_MODEL || 'z-ai/glm-5.3',
 
   // ═══ Local AI Server (LM Studio, Ollama, Jan.ai, etc.) ═══
   localAiBackend: process.env.LOCAL_AI_BACKEND || 'lmstudio',

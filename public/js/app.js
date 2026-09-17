@@ -139,8 +139,10 @@ class App {
   connectSocket() {
     this.socket = io({
       reconnection: true,
-      reconnectionDelay: 2000,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
       reconnectionAttempts: Infinity,
+      timeout: 45000,
     });
 
     this.socket.on('connect', () => {
@@ -162,13 +164,28 @@ class App {
       if (this.views.chat && this.views.chat.onModelUpdate) {
         this.views.chat.onModelUpdate(this.state.activeProvider, data.model);
       }
+      // Sync active background execution if running
+      if (data.activeExecution && this.views.chat && this.views.chat.syncActiveExecution) {
+        this.views.chat.syncActiveExecution(data.activeExecution);
+      }
+      // Restore pending approval on reconnect
+      if (data.pendingApproval && this.views.chat) {
+        this.views.chat.pendingApproval = true;
+        this.views.chat._pendingApprovalResult = data.pendingApproval;
+        // If chat view is already rendered, show the card immediately
+        if (this.views.chat.rendered) {
+          this.views.chat.renderApprovalCard(data.pendingApproval);
+          this.views.chat._pendingApprovalResult = null;
+        }
+      }
     });
 
     // Forward all chat events to the chat view
     const chatEvents = [
       'chat:text', 'chat:thinking', 'chat:tool_start', 'chat:tool_done',
       'chat:done', 'chat:error', 'chat:cleared', 'chat:compacted',
-      'chat:session_created', 'chat:session_loaded',
+      'chat:session_created', 'chat:session_loaded', 'chat:session_updated',
+      'chat:execution_started',
     ];
     chatEvents.forEach(event => {
       this.socket.on(event, (data) => {

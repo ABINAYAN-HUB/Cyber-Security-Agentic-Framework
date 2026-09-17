@@ -438,15 +438,9 @@ export class DashboardView {
       card.addEventListener('click', async () => {
         const table = card.dataset.table;
         const title = card.querySelector('.text-xs').textContent + ' Database Records';
-        
-        const previewable = ['loot', 'targets', 'scan_results', 'operations'];
-        if (!previewable.includes(table)) {
-          Modal.show(title, `<div class="text-sm text-muted" style="padding:var(--sp-4);">Table preview not supported in Web UI. Use the CLI interface to query details for the table <strong>${table}</strong>.</div>`);
-          return;
-        }
 
         let contentHtml = '<div class="flex items-center gap-2" style="padding:var(--sp-4);"><div class="spinner"></div><span>Loading records...</span></div>';
-        const modal = Modal.show(title, contentHtml, { width: '650px' });
+        const modal = Modal.show(title, contentHtml, { width: '800px' });
 
         try {
           let data = null;
@@ -458,6 +452,8 @@ export class DashboardView {
             data = await this.app.api('/scan-results');
           } else if (table === 'operations') {
             data = await this.app.api('/operations');
+          } else {
+            data = await this.app.api(`/memory/table/${table}`);
           }
 
           if (data && data.results && data.results.length > 0) {
@@ -563,6 +559,46 @@ export class DashboardView {
       `;
     }
 
+    if (results && results.length > 0) {
+      const allKeys = Object.keys(results[0]).filter(k => k !== 'embedding');
+      return `
+        <div class="scroll-container" style="max-height:450px;overflow-x:auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                ${allKeys.map(k => `<th>${this._escapeHtml(k.replace(/_/g, ' ').toUpperCase())}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${results.slice(0, 30).map(r => `
+                <tr>
+                  ${allKeys.map(k => {
+                    let val = r[k];
+                    if (val === null || val === undefined) return '<td class="text-muted">—</td>';
+                    let strVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                    if (strVal.length > 80) {
+                      return `<td style="max-width:200px;" class="truncate" title="${this._escapeHtml(strVal)}">${this._escapeHtml(strVal.slice(0, 77))}...</td>`;
+                    }
+                    return `<td>${this._escapeHtml(strVal)}</td>`;
+                  }).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
     return '<div class="text-sm text-muted">Preview not supported for this table.</div>';
+  }
+
+  _escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 }

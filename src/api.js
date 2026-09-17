@@ -44,9 +44,8 @@ function getApiUrl() {
   return `${base.replace(/\/+$/, '')}/chat/completions`;
 }
 
-// DeepSeek models use native reasoning_content — they don't need chat_template_kwargs.
 // Local models (LM Studio / Ollama) standard OpenAI endpoints reject chat_template_kwargs.
-// Only GLM needs the explicit enable_thinking flag.
+// GLM models need the explicit enable_thinking flag via chat_template_kwargs.
 function shouldSendThinkingKwargs() {
   if (config.activeProvider === 'local') return false;
   const model = config.model.toLowerCase();
@@ -63,20 +62,14 @@ function buildModelParams() {
   if (config.activeProvider === 'local') {
     return params;
   }
-  const model = config.model.toLowerCase();
-  if (model.includes('deepseek')) {
-    params.presence_penalty = config.presencePenalty;
-  } else {
-    params.presence_penalty = config.presencePenalty;
-    params.repetition_penalty = config.repetitionPenalty;
-  }
+  params.presence_penalty = config.presencePenalty;
+  params.repetition_penalty = config.repetitionPenalty;
   return params;
 }
 
 
 export const VERIFIED_NVIDIA_MODELS = [
-  { id: 'deepseek-ai/deepseek-v4-flash-0731', name: 'DeepSeek V4 Flash', tag: 'Fast • Reasoning' },
-  { id: 'deepseek-ai/deepseek-v4-pro-0813', name: 'DeepSeek V4 Pro', tag: 'Powerful • Reasoning' },
+  { id: 'z-ai/glm-5.3', name: 'GLM 5.3', tag: 'Powerful • Reasoning • MoE 753B' },
 ];
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -88,6 +81,11 @@ function networkErrorHint(errMsg, err) {
   if (err?.cause) {
     msg += ` ${err.cause.code || ''} ${err.cause.message || ''}`;
   }
+  if (msg.includes('504')) return ' (Gateway Timeout: The API server is overloaded or the model is currently unavailable)';
+  if (msg.includes('503')) return ' (Service Unavailable: The API provider is currently down)';
+  if (msg.includes('502')) return ' (Bad Gateway: The API proxy failed to connect to the model backend)';
+  if (msg.includes('500')) return ' (Internal Server Error: The API server encountered a crash)';
+  if (msg.includes('404')) return ' (Not Found: The requested model does not exist or your API key lacks access)';
   if (msg.includes('ENOTFOUND')) return ' (DNS resolution failed — check internet connection or DNS settings)';
   if (msg.includes('ECONNREFUSED')) return ' (Connection refused — server may be down or blocked by firewall)';
   if (msg.includes('ETIMEDOUT') || msg.includes('UND_ERR_CONNECT_TIMEOUT')) return ' (Connection timed out — server unreachable or network too slow)';
@@ -188,9 +186,14 @@ async function fetchWithRetry(url, options, maxRetries = 3) {
     if (attempt < maxRetries) await sleep(2000 * attempt);
   }
   const providerName = getActiveProviderName();
-  let finalErrorMsg = `CRITICAL: Connection to ${providerName} API completely failed after ${maxRetries} attempts. Network Error: ${lastError.message}`;
+  const isApiError = lastError.message.includes('API error');
+  const errorPrefix = isApiError ? 'API Error' : 'Network Error';
+  
+  let finalErrorMsg = `CRITICAL: Connection to ${providerName} completely failed after ${maxRetries} attempts. ${errorPrefix}: ${lastError.message}`;
   finalErrorMsg += networkErrorHint(lastError.message, lastError);
-  if (!finalErrorMsg.includes('(')) {
+  
+  // Only suggest checking internet connection if it's NOT an API error (HTTP status code)
+  if (!finalErrorMsg.includes('(') && !isApiError) {
     finalErrorMsg += config.activeProvider === 'local'
       ? ' (Check if your local AI server, e.g. LM Studio / Ollama, is running)'
       : ' (Check your internet connection, DNS, or VPN)';
@@ -239,7 +242,7 @@ export async function* streamChat(messages, tools = null, systemPrompt = null, s
     stream: true,
   };
 
-  // Only add thinking kwargs for models that support it (not DeepSeek)
+  // Only add thinking kwargs for GLM models that support it
   if (shouldSendThinkingKwargs()) {
     body.chat_template_kwargs = {
       enable_thinking: true,
@@ -421,7 +424,7 @@ export async function chatCompletion(messages, tools, systemPrompt) {
     stream: false,
   };
 
-  // Only add thinking kwargs for models that support it (not DeepSeek / local models)
+  // Only add thinking kwargs for GLM models that support it (not local models)
   if (shouldSendThinkingKwargs()) {
     body.chat_template_kwargs = {
       enable_thinking: true,

@@ -129,7 +129,10 @@ export async function startWebServer(options = {}) {
   const httpServer = createServer(app);
   const io = new SocketServer(httpServer, {
     cors: { origin: '*' },
-    maxHttpBufferSize: 5e6, // 5MB
+    maxHttpBufferSize: 10e6, // 10MB
+    pingInterval: 10000,
+    pingTimeout: 60000,
+    connectTimeout: 45000,
   });
 
   app.use(express.json());
@@ -994,6 +997,26 @@ export async function startWebServer(options = {}) {
     res.json(memory.search(''));
   });
 
+  // API: Generic Database Table Preview (for all Dashboard DB cards)
+  app.get('/api/memory/table/:name', (req, res) => {
+    try {
+      const tableName = req.params.name;
+      const allowedTables = [
+        'knowledge', 'targets', 'operations', 'scan_results',
+        'threat_intel', 'exploit_db', 'attack_logs', 'nuclei_results',
+        'fofa_results', 'loot', 'tool_knowledge', 'tasks', 'strategies', 'installed_tools'
+      ];
+      if (!allowedTables.includes(tableName)) {
+        return res.status(400).json({ error: 'Invalid or unsupported table name' });
+      }
+      const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+      const rows = memory.db.prepare(`SELECT * FROM ${tableName} ORDER BY rowid DESC LIMIT ?`).all(limit);
+      res.json({ table: tableName, count: rows.length, results: rows });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // API: File Reader (Used for editing artifacts)
   app.get('/api/file', (req, res) => {
     const filepath = req.query.path;
@@ -1134,17 +1157,36 @@ export async function startWebServer(options = {}) {
   // WEBSOCKET — Real-time Agent Chat
   // ═══════════════════════════════════════════
 
+  // Global active execution state across all connections & reconnects
+  let activeExecution = {
+    isRunning: false,
+    sessionId: null,
+    userMessage: null,
+    startTime: null,
+    events: [], // Buffered events in current turn: { event: string, data: any, timestamp: number }
+    abortController: null,
+    pendingApprovalResult: null,
+  };
+  let globalActiveSessionId = null;
+
   io.on('connection', (socket) => {
     console.log(`[Web] Client connected: ${socket.id}`);
-    let currentAbortController = null;
-    let activeSessionId = null;
+    let activeSessionId = globalActiveSessionId;
 
-    // Send initial state
+    // Send initial state including active execution replay buffer if running
     socket.emit('chat:ready', {
       provider: config.activeProvider || 'nvidia',
       model: getActiveModel(),
       messageCount: agent.messages.length,
       usage: agent.getUsage(),
+      pendingApproval: activeExecution.pendingApprovalResult,
+      activeExecution: activeExecution.isRunning ? {
+        isRunning: true,
+        sessionId: activeExecution.sessionId,
+        userMessage: activeExecution.userMessage,
+        startTime: activeExecution.startTime,
+        events: activeExecution.events,
+      } : null,
     });
 
     // Handle chat messages
@@ -1152,82 +1194,125 @@ export async function startWebServer(options = {}) {
       const { message, sessionId } = data;
       if (!message || !message.trim()) return;
 
-      // Use the client's provided sessionId if valid (fixes reconnection split bug)
-      if (sessionId && sessionId !== activeSessionId) {
-        const existingSession = memory.getChatSession(sessionId);
-        if (existingSession) {
-          activeSessionId = sessionId;
+      // Clear pending approval state — user is sending a new message (acted on approval)
+      activeExecution.pendingApprovalResult = null;
+
+      let currentSessionId = sessionId || activeSessionId || globalActiveSessionId;
+      if (currentSessionId) {
+        const existingSession = memory.getChatSession(currentSessionId);
+        if (!existingSession) {
+          currentSessionId = null;
         }
       }
 
       // Auto-create session if none active
-      if (!activeSessionId) {
+      if (!currentSessionId) {
         const id = randomUUID();
         const title = message.slice(0, 60) + (message.length > 60 ? '...' : '');
         memory.createChatSession(id, title);
+        currentSessionId = id;
+        globalActiveSessionId = id;
         activeSessionId = id;
-        socket.emit('chat:session_created', { id, title });
+        io.emit('chat:session_created', { id, title });
+      } else {
+        globalActiveSessionId = currentSessionId;
+        activeSessionId = currentSessionId;
       }
 
       // Auto-title: if this is the first message in the session, set the title
-      const session = memory.getChatSession(activeSessionId);
+      const session = memory.getChatSession(currentSessionId);
       if (session && session.title === 'New Chat') {
         const title = message.slice(0, 60) + (message.length > 60 ? '...' : '');
-        memory.updateSessionTitle(activeSessionId, title);
+        memory.updateSessionTitle(currentSessionId, title);
+        io.emit('chat:session_updated', { id: currentSessionId, title });
       }
 
       // Persist user message
-      memory.storeSessionMessage(activeSessionId, 'user', message);
+      memory.storeSessionMessage(currentSessionId, 'user', message);
 
-      // Create an abort controller for this message
-      currentAbortController = new AbortController();
-      const signal = currentAbortController.signal;
+      // Create an abort controller and register active execution
+      const abortController = new AbortController();
+      const signal = abortController.signal;
+      activeExecution = {
+        isRunning: true,
+        sessionId: currentSessionId,
+        userMessage: message,
+        startTime: Date.now(),
+        events: [],
+        abortController,
+        pendingApprovalResult: null,
+      };
+
+      // Broadcast execution start so all connected clients update UI to streaming state
+      io.emit('chat:execution_started', {
+        sessionId: currentSessionId,
+        userMessage: message,
+        startTime: activeExecution.startTime,
+      });
+
       let assistantContent = '';
 
       try {
         await agent.processMessage(
           message,
-          // onUpdate — stream text/thinking to client
+          // onUpdate — stream text/thinking to ALL clients
           async (update) => {
             if (signal.aborted) return;
             if (update.type === 'text') {
               assistantContent += update.content;
-              socket.emit('chat:text', { content: update.content });
+              const evt = { event: 'chat:text', data: { content: update.content }, timestamp: Date.now() };
+              activeExecution.events.push(evt);
+              io.emit('chat:text', evt.data);
             } else if (update.type === 'thinking') {
-              socket.emit('chat:thinking', { content: update.content });
+              const evt = { event: 'chat:thinking', data: { content: update.content }, timestamp: Date.now() };
+              activeExecution.events.push(evt);
+              io.emit('chat:thinking', evt.data);
             }
           },
-          // onTool — stream tool events to client
+          // onTool — stream tool events to ALL clients
           async (toolEvent) => {
             if (signal.aborted) return;
             if (toolEvent.type === 'start') {
-              socket.emit('chat:tool_start', { name: toolEvent.name, args: toolEvent.args });
+              const evt = { event: 'chat:tool_start', data: { name: toolEvent.name, args: toolEvent.args }, timestamp: Date.now() };
+              activeExecution.events.push(evt);
+              io.emit('chat:tool_start', evt.data);
             } else if (toolEvent.type === 'done') {
-              socket.emit('chat:tool_done', {
-                name: toolEvent.name,
-                args: toolEvent.args,
-                result: toolEvent.result,
-              });
+              const evt = {
+                event: 'chat:tool_done',
+                data: {
+                  name: toolEvent.name,
+                  args: toolEvent.args,
+                  result: toolEvent.result,
+                },
+                timestamp: Date.now(),
+              };
+              activeExecution.events.push(evt);
+              io.emit('chat:tool_done', evt.data);
+              // Track pending approval for reconnection recovery
+              if (toolEvent.result && toolEvent.result.requestedFeedback) {
+                activeExecution.pendingApprovalResult = toolEvent.result;
+              }
             }
           },
           signal
         );
 
         // Persist assistant response
-        if (assistantContent && activeSessionId) {
-          memory.storeSessionMessage(activeSessionId, 'assistant', assistantContent);
+        if (assistantContent && currentSessionId) {
+          memory.storeSessionMessage(currentSessionId, 'assistant', assistantContent);
         }
 
         // Turn complete
         if (!signal.aborted) {
-          socket.emit('chat:done', { usage: agent.getUsage() });
+          io.emit('chat:done', { usage: agent.getUsage() });
         }
       } catch (error) {
         if (!signal.aborted) {
-          socket.emit('chat:error', { error: error.message });
+          io.emit('chat:error', { error: error.message });
         }
       } finally {
-        currentAbortController = null;
+        activeExecution.isRunning = false;
+        activeExecution.abortController = null;
       }
     });
 
@@ -1240,6 +1325,7 @@ export async function startWebServer(options = {}) {
         return;
       }
       activeSessionId = sessionId;
+      globalActiveSessionId = sessionId;
       // Load messages from this session into the agent
       const messages = memory.getSessionMessages(sessionId);
       agent.clearHistory();
@@ -1260,17 +1346,19 @@ export async function startWebServer(options = {}) {
       const id = randomUUID();
       memory.createChatSession(id, 'New Chat');
       activeSessionId = id;
+      globalActiveSessionId = id;
       agent.clearHistory();
-      socket.emit('chat:session_created', { id, title: 'New Chat' });
+      io.emit('chat:session_created', { id, title: 'New Chat' });
       socket.emit('chat:cleared', {});
     });
 
-    // Abort current generation
+    // Abort current generation (can be invoked by any connected client)
     socket.on('chat:abort', () => {
-      if (currentAbortController) {
-        currentAbortController.abort();
-        currentAbortController = null;
-        socket.emit('chat:done', { usage: agent.getUsage(), aborted: true });
+      if (activeExecution.abortController) {
+        activeExecution.abortController.abort();
+        activeExecution.isRunning = false;
+        activeExecution.abortController = null;
+        io.emit('chat:done', { usage: agent.getUsage(), aborted: true });
       }
     });
 
@@ -1285,15 +1373,16 @@ export async function startWebServer(options = {}) {
         const id = randomUUID();
         memory.createChatSession(id, 'New Chat');
         activeSessionId = id;
-        socket.emit('chat:session_created', { id, title: 'New Chat' });
+        globalActiveSessionId = id;
+        io.emit('chat:session_created', { id, title: 'New Chat' });
       }
-      socket.emit('chat:cleared', {});
+      io.emit('chat:cleared', {});
     });
 
     // Compact history
     socket.on('chat:compact', async () => {
       await agent.compactHistory();
-      socket.emit('chat:compacted', { usage: agent.getUsage() });
+      io.emit('chat:compacted', { usage: agent.getUsage() });
     });
 
     socket.on('disconnect', () => {
@@ -1332,4 +1421,6 @@ export async function startWebServer(options = {}) {
     console.log(`  🔗 BRON:       ${bronStatus}`);
     console.log(`  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
   });
+
+  return { httpServer, io, app, activeExecution };
 }

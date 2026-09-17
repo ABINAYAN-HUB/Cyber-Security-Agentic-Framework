@@ -241,6 +241,30 @@ export function printToolResult(name, result) {
   }
   
   console.log(colors.success(`     ${icons.success} Done`));
+
+  // Show approval prompt for strategy/plan artifacts in CLI
+  if (name === 'save_artifact' && result.requestedFeedback) {
+    console.log();
+    console.log(colors.primary('  ╔══════════════════════════════════════════════════════════╗'));
+    console.log(colors.primary('  ║') + colors.bright.bold('  🛡️  STRATEGY APPROVAL REQUIRED                           ') + colors.primary('║'));
+    console.log(colors.primary('  ╠══════════════════════════════════════════════════════════╣'));
+    if (result.summary) {
+      const summaryLines = result.summary.match(/.{1,54}/g) || [result.summary];
+      for (const line of summaryLines) {
+        console.log(colors.primary('  ║') + `  ${colors.text(line.padEnd(56))}` + colors.primary('║'));
+      }
+    }
+    if (result.path) {
+      console.log(colors.primary('  ║') + `  ${colors.muted('📄 ' + result.path.split('/').pop())}`.padEnd(67) + colors.primary('║'));
+    }
+    console.log(colors.primary('  ║') + '                                                          ' + colors.primary('║'));
+    console.log(colors.primary('  ║') + `  ${colors.secondary('Type "approve" to proceed')}                               ` + colors.primary('║'));
+    console.log(colors.primary('  ║') + `  ${colors.danger('Type "reject" to reject')}                                 ` + colors.primary('║'));
+    console.log(colors.primary('  ║') + `  ${colors.warning('Or type feedback to modify the plan')}                     ` + colors.primary('║'));
+    console.log(colors.primary('  ╚══════════════════════════════════════════════════════════╝'));
+    console.log();
+  }
+
   
   // Show informational note for soft-failures (e.g., grep with no match)
   if (result.note) {

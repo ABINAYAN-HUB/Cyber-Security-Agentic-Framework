@@ -101,8 +101,13 @@ export async function execute(args) {
 
     // Tally summary
     for (const f of results.findings) {
-      const sev = (f.severity || 'info').toLowerCase();
-      if (results.summary[sev] !== undefined) results.summary[sev]++;
+      let sev = (f.severity || 'info').toLowerCase();
+      if (sev === 'moderate' || sev === 'warn' || sev === 'warning') sev = 'medium';
+      if (results.summary[sev] !== undefined) {
+        results.summary[sev]++;
+      } else {
+        results.summary.info++;
+      }
       results.summary.total++;
     }
 

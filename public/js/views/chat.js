@@ -17,6 +17,7 @@ export class ChatView {
     this.thinkingStartTime = null;
     this.thinkingTimerInterval = null;
     this.streamStartTime = null;
+    this.activeBlock = null;
     // Session state
     this.activeSessionId = null;
     this.sessions = [];
@@ -96,6 +97,14 @@ export class ChatView {
       messagesEl.innerHTML = '';
       this.messages.forEach(msg => this.appendMessageDOM(msg));
       this.scrollToBottom(true);
+    }
+
+    // If there's a pending approval that didn't render (user was on another view), render it now
+    if (this.pendingApproval && this._pendingApprovalResult) {
+      requestAnimationFrame(() => {
+        this.renderApprovalCard(this._pendingApprovalResult);
+        this._pendingApprovalResult = null;
+      });
     }
 
     // Setup suggestion chips, model pill & load sessions after DOM is ready
@@ -434,7 +443,16 @@ export class ChatView {
   sendMessage() {
     const input = document.getElementById('chat-input');
     const message = input.value.trim();
-    if (!message || this.isStreaming) return;
+    if (!message) return;
+    // If we were waiting for approval, force-clear approval state so the message goes through
+    if (this.pendingApproval) {
+      this.pendingApproval = false;
+      if (this.isStreaming) {
+        this.isStreaming = false;
+        this.updateSendButton(false);
+      }
+    }
+    if (this.isStreaming) return;
 
     // Add user message
     this.addMessage('user', message);
@@ -449,6 +467,7 @@ export class ChatView {
 
     // Start streaming state
     this.isStreaming = true;
+    this.activeBlock = null;
     this.currentStreamContent = '';
     this.currentThinkingContent = '';
     this.currentToolCalls = [];
@@ -474,18 +493,100 @@ export class ChatView {
     // which will trigger finishStreaming. This prevents double-finish (Bug 2 fix).
   }
 
+  // ═══ ACTIVE EXECUTION REPLAY / RECONNECTION SYNC ═══
+
+  syncActiveExecution(execState) {
+    if (!execState || !execState.isRunning) return;
+
+    if (execState.sessionId && this.activeSessionId !== execState.sessionId) {
+      this.activeSessionId = execState.sessionId;
+      const session = this.sessions.find(s => s.id === execState.sessionId);
+      this.updateHeaderTitle(session?.title || execState.userMessage?.slice(0, 60) || 'Chat Session');
+    }
+
+    this.isStreaming = true;
+    this.updateSendButton(true);
+
+    const welcome = document.querySelector('.chat-welcome');
+    if (welcome) welcome.remove();
+
+    // Ensure user message is rendered
+    const lastUserMsg = [...this.messages].reverse().find(m => m.role === 'user');
+    if (!lastUserMsg || lastUserMsg.content !== execState.userMessage) {
+      if (execState.userMessage) {
+        this.addMessage('user', execState.userMessage);
+      }
+    }
+
+    // Ensure streaming assistant message placeholder is rendered
+    const lastMsg = this.messages[this.messages.length - 1];
+    if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.streaming) {
+      this.currentStreamContent = '';
+      this.currentThinkingContent = '';
+      this.currentToolCalls = [];
+      this.toolStepCounter = 0;
+      this.activeBlock = null;
+      this.streamStartTime = execState.startTime || Date.now();
+      this.addMessage('assistant', '', { streaming: true });
+    }
+
+    // Replay buffered events
+    if (Array.isArray(execState.events) && execState.events.length > 0) {
+      const idx = this.messages.length - 1;
+      const contentEl = document.getElementById(`msg-content-${idx}`);
+      if (contentEl) {
+        contentEl.innerHTML = '';
+      }
+      this.activeBlock = null;
+      this.currentStreamContent = '';
+      this.currentThinkingContent = '';
+      this.currentToolCalls = [];
+      this.toolStepCounter = 0;
+
+      for (const evt of execState.events) {
+        this.handleSocketEvent(evt.event, evt.data);
+      }
+    }
+
+    this.scrollToBottom(true);
+  }
+
   // ═══ SOCKET EVENTS ═══
 
   handleSocketEvent(event, data) {
     switch (event) {
+      case 'chat:execution_started':
+        if (data.sessionId) this.activeSessionId = data.sessionId;
+        this.isStreaming = true;
+        this.updateSendButton(true);
+        {
+          const welcome = document.querySelector('.chat-welcome');
+          if (welcome) welcome.remove();
+          const lastUser = [...this.messages].reverse().find(m => m.role === 'user');
+          if (!lastUser || lastUser.content !== data.userMessage) {
+            if (data.userMessage) this.addMessage('user', data.userMessage);
+          }
+          const lastAsst = this.messages[this.messages.length - 1];
+          if (!lastAsst || lastAsst.role !== 'assistant' || !lastAsst.streaming) {
+            this.currentStreamContent = '';
+            this.currentThinkingContent = '';
+            this.currentToolCalls = [];
+            this.toolStepCounter = 0;
+            this.activeBlock = null;
+            this.streamStartTime = data.startTime || Date.now();
+            this.addMessage('assistant', '', { streaming: true });
+          }
+        }
+        break;
+
       case 'chat:text':
         this.currentStreamContent += data.content;
-        this.updateStreamingMessage();
+        this.updateStreamingMessage(data.content);
         break;
 
       case 'chat:thinking':
         this.currentThinkingContent += data.content;
-        this.updateThinkingBlock();
+        this.updateThinkingBlock(data.content);
         break;
 
       case 'chat:tool_start':
@@ -509,7 +610,9 @@ export class ChatView {
         this.updateToolCallStatus(data.name, data.result);
         
         if (data.result && data.result.requestedFeedback) {
-          this.renderApprovalCard(data.result);
+          // Mark that we're waiting for user approval — this prevents finishStreaming from blocking buttons
+          this.pendingApproval = true;
+          this._pendingApprovalResult = data.result;
         }
         break;
       }
@@ -517,6 +620,11 @@ export class ChatView {
       case 'chat:done':
         if (this.isStreaming) {
           this.finishStreaming(data);
+        }
+        // Render approval card AFTER streaming is fully finalized so the card doesn't get clobbered
+        if (this.pendingApproval && this._pendingApprovalResult) {
+          this.renderApprovalCard(this._pendingApprovalResult);
+          this._pendingApprovalResult = null;
         }
         break;
 
@@ -530,8 +638,10 @@ export class ChatView {
       case 'chat:cleared':
         // Bug 4 fix: reset streaming state
         this.isStreaming = false;
+        this._finalizeActiveThinking();
         this.stopThinkingTimer();
         this.updateSendButton(false);
+        this.activeBlock = null;
         this.messages = [];
         if (this.rendered) {
           const messagesEl = document.getElementById('chat-messages');
@@ -553,11 +663,19 @@ export class ChatView {
         this.loadSessions();
         break;
 
+      case 'chat:session_updated':
+        if (data.id === this.activeSessionId && data.title) {
+          this.updateHeaderTitle(data.title);
+        }
+        this.loadSessions();
+        break;
+
       case 'chat:session_loaded':
         this.activeSessionId = data.sessionId;
         const session = this.sessions.find(s => s.id === data.sessionId);
         this.updateHeaderTitle(session?.title || 'Chat Session');
         this.messages = [];
+        this.activeBlock = null;
         // Rebuild messages from server data
         const messagesEl = document.getElementById('chat-messages');
         if (messagesEl) messagesEl.innerHTML = '';
@@ -637,47 +755,71 @@ export class ChatView {
 
   // ═══ STREAMING UPDATES ═══
 
-  updateStreamingMessage() {
+  updateStreamingMessage(contentChunk) {
     const idx = this.messages.length - 1;
     const contentEl = document.getElementById(`msg-content-${idx}`);
     if (!contentEl) return;
 
-    // Remove typing indicator if still showing
     const typingEl = contentEl.querySelector('.typing-indicator');
     if (typingEl) typingEl.remove();
 
-    // Build the text content section
-    let textContainer = contentEl.querySelector('.stream-text');
-    if (!textContainer) {
-      textContainer = document.createElement('div');
-      textContainer.className = 'stream-text';
-      contentEl.appendChild(textContainer);
+    // If active block was thinking, finalize it before starting/continuing text
+    if (this.activeBlock && this.activeBlock.type === 'thinking') {
+      this._finalizeActiveThinking();
     }
-    textContainer.innerHTML = renderMarkdown(this.currentStreamContent) + '<span class="streaming-cursor"></span>';
 
-    // Add copy buttons to code blocks
-    this.addCopyButtonsToCodeBlocks(textContainer);
+    if (this.activeBlock && this.activeBlock.type === 'text') {
+      this.activeBlock.content += contentChunk;
+      this.activeBlock.el.innerHTML = renderMarkdown(this.activeBlock.content) + '<span class="streaming-cursor"></span>';
+      this.addCopyButtonsToCodeBlocks(this.activeBlock.el);
+    } else {
+      // Remove any lingering cursors
+      contentEl.querySelectorAll('.streaming-cursor').forEach(c => c.remove());
+
+      const textContainer = document.createElement('div');
+      textContainer.className = 'stream-text';
+      textContainer.innerHTML = renderMarkdown(contentChunk) + '<span class="streaming-cursor"></span>';
+      contentEl.appendChild(textContainer);
+      this.addCopyButtonsToCodeBlocks(textContainer);
+
+      this.activeBlock = {
+        type: 'text',
+        el: textContainer,
+        content: contentChunk,
+      };
+    }
 
     if (this.autoScroll) this.scrollToBottom();
   }
 
   // ═══ THINKING BLOCK ═══
 
-  updateThinkingBlock() {
+  updateThinkingBlock(contentChunk) {
     const idx = this.messages.length - 1;
     const contentEl = document.getElementById(`msg-content-${idx}`);
     if (!contentEl) return;
 
-    // Remove typing indicator if still showing
     const typingEl = contentEl.querySelector('.typing-indicator');
     if (typingEl) typingEl.remove();
 
-    let thinkingBlock = contentEl.querySelector('.thinking-block');
-    if (!thinkingBlock) {
+    if (this.activeBlock && this.activeBlock.type === 'thinking') {
+      this.activeBlock.content += contentChunk;
+      const tc = this.activeBlock.el.querySelector('.thinking-content');
+      if (tc) {
+        tc.textContent = this.activeBlock.content;
+        tc.scrollTop = tc.scrollHeight;
+      }
+    } else {
+      // Finalize any previous thinking block before starting a new one
+      this._finalizeActiveThinking();
+
+      // Remove any text streaming cursor from previous text block
+      contentEl.querySelectorAll('.streaming-cursor').forEach(c => c.remove());
+
       this.thinkingStartTime = Date.now();
       this.startThinkingTimer();
 
-      thinkingBlock = document.createElement('div');
+      const thinkingBlock = document.createElement('div');
       thinkingBlock.className = 'thinking-block active';
       thinkingBlock.innerHTML = `
         <div class="thinking-header">
@@ -687,13 +829,14 @@ export class ChatView {
             <span class="thinking-label-text">Reasoning...</span>
           </div>
           <span class="thinking-pulse"></span>
-          <span class="thinking-elapsed" id="thinking-elapsed">0s</span>
+          <span class="thinking-elapsed">0s</span>
         </div>
-        <div class="thinking-content expanded"></div>
+        <div class="thinking-content expanded">${escapeHtml(contentChunk || '')}</div>
       `;
-      contentEl.insertBefore(thinkingBlock, contentEl.firstChild);
 
-      // Setup toggle
+      // Append at the sequential end of the message content!
+      contentEl.appendChild(thinkingBlock);
+
       const header = thinkingBlock.querySelector('.thinking-header');
       header.addEventListener('click', () => {
         const chevron = header.querySelector('.thinking-chevron');
@@ -701,27 +844,49 @@ export class ChatView {
         chevron.classList.toggle('open');
         content.classList.toggle('expanded');
       });
+
+      this.activeBlock = {
+        type: 'thinking',
+        el: thinkingBlock,
+        content: contentChunk || '',
+        startTime: Date.now(),
+      };
     }
 
-    const thinkingContent = thinkingBlock.querySelector('.thinking-content');
-    thinkingContent.textContent = this.currentThinkingContent;
-    thinkingContent.scrollTop = thinkingContent.scrollHeight;
-
     if (this.autoScroll) this.scrollToBottom();
+  }
+
+  _finalizeActiveThinking() {
+    this.stopThinkingTimer();
+    if (this.activeBlock && this.activeBlock.type === 'thinking') {
+      const tb = this.activeBlock.el;
+      if (tb) {
+        tb.classList.remove('active');
+        const pulse = tb.querySelector('.thinking-pulse');
+        if (pulse) pulse.remove();
+        const labelText = tb.querySelector('.thinking-label-text');
+        if (labelText) {
+          const elapsed = this.activeBlock.startTime
+            ? Math.floor((Date.now() - this.activeBlock.startTime) / 1000)
+            : 0;
+          const timeStr = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
+          labelText.textContent = `Reasoning complete (${timeStr})`;
+        }
+        const elapsedEl = tb.querySelector('.thinking-elapsed');
+        if (elapsedEl) elapsedEl.remove();
+      }
+      this.activeBlock = null;
+    }
   }
 
   startThinkingTimer() {
     this.stopThinkingTimer();
     this.thinkingTimerInterval = setInterval(() => {
-      const el = document.getElementById('thinking-elapsed');
-      if (el && this.thinkingStartTime) {
-        const elapsed = Math.floor((Date.now() - this.thinkingStartTime) / 1000);
-        if (elapsed < 60) {
-          el.textContent = `${elapsed}s`;
-        } else {
-          const mins = Math.floor(elapsed / 60);
-          const secs = elapsed % 60;
-          el.textContent = `${mins}m ${secs}s`;
+      if (this.activeBlock && this.activeBlock.type === 'thinking') {
+        const el = this.activeBlock.el.querySelector('.thinking-elapsed');
+        if (el && this.activeBlock.startTime) {
+          const elapsed = Math.floor((Date.now() - this.activeBlock.startTime) / 1000);
+          el.textContent = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
         }
       }
     }, 1000);
@@ -743,6 +908,15 @@ export class ChatView {
 
     const typingEl = contentEl.querySelector('.typing-indicator');
     if (typingEl) typingEl.remove();
+
+    // Finalize any active thinking or text block
+    if (this.activeBlock && this.activeBlock.type === 'thinking') {
+      this._finalizeActiveThinking();
+    } else if (this.activeBlock && this.activeBlock.type === 'text') {
+      const cursor = this.activeBlock.el.querySelector('.streaming-cursor');
+      if (cursor) cursor.remove();
+      this.activeBlock = null;
+    }
 
     const cardId = `tool-${step}-${Date.now()}`;
     const card = document.createElement('div');
@@ -776,12 +950,8 @@ export class ChatView {
       </div>
     `;
 
-    const streamText = contentEl.querySelector('.stream-text');
-    if (streamText) {
-      contentEl.insertBefore(card, streamText);
-    } else {
-      contentEl.appendChild(card);
-    }
+    // Append in sequential chronological flow
+    contentEl.appendChild(card);
 
     const header = card.querySelector('.tool-call-header');
     header.addEventListener('click', () => {
@@ -836,140 +1006,159 @@ export class ChatView {
   // ═══ APPROVAL CARD (PLANNING MODE) ═══
 
   renderApprovalCard(result) {
-    const idx = this.messages.length - 1;
-    const contentEl = document.getElementById(`msg-content-${idx}`);
-    if (!contentEl) return;
+    // Append the approval card to the main chat-messages container (not inside a message content div)
+    // This prevents finishStreaming() from clobbering the card and ensures buttons always work.
+    const messagesEl = document.getElementById('chat-messages');
+    if (!messagesEl) return;
 
-    // We don't want the approval card to be buried under streaming text, so we append it at the end
     const cardId = `approval-${Date.now()}`;
     const card = document.createElement('div');
     card.className = 'approval-card';
     card.id = cardId;
 
     const summary = result.summary || 'The agent has proposed a plan or action that requires your explicit approval.';
+    const artifactName = result.path ? result.path.split('/').pop() : '';
 
     card.innerHTML = `
       <div class="approval-header">
         <span class="approval-icon">🛡️</span>
-        <span class="approval-title">User Approval Required</span>
+        <span class="approval-title">Strategy Approval Required</span>
       </div>
       <div class="approval-body">
         <p class="approval-summary">${escapeHtml(summary)}</p>
+        ${artifactName ? `<p style="font-size: 0.85em; color: var(--text-sub); margin-bottom: 8px;">📄 <code>${escapeHtml(artifactName)}</code></p>` : ''}
         <div id="plan-preview-${cardId}" class="approval-plan-preview markdown-body" style="margin: 12px 0; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); font-size: 0.9em; max-height: 400px; overflow-y: auto;">
           <div class="spinner" style="width: 14px; height: 14px; display: inline-block; margin-right: 6px; vertical-align: middle;"></div> <span style="vertical-align: middle;">Loading plan details...</span>
         </div>
         <p class="approval-hint">Review the plan above. The agent is paused and waiting for your decision.</p>
         <div class="approval-actions">
-          <button class="btn-proceed" id="btn-proceed-${cardId}">Proceed</button>
-          <button class="btn-edit" id="btn-edit-${cardId}">Edit Plan</button>
-          <button class="btn-reject" id="btn-reject-${cardId}">Reject</button>
+          <button class="btn-proceed" id="btn-proceed-${cardId}">✅ Approve & Proceed</button>
+          <button class="btn-edit" id="btn-edit-${cardId}">✏️ Edit Plan</button>
+          <button class="btn-reject" id="btn-reject-${cardId}">❌ Reject</button>
         </div>
       </div>
     `;
 
-    contentEl.appendChild(card);
+    messagesEl.appendChild(card);
 
-    // Auto-load plan content
+    // Auto-load plan content from the saved artifact file
     if (result.path) {
       fetch(`/api/file?path=${encodeURIComponent(result.path)}`)
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        })
         .then(data => {
           const previewEl = document.getElementById(`plan-preview-${cardId}`);
           if (previewEl && data.content) {
             previewEl.innerHTML = renderMarkdown(data.content);
             if (this.autoScroll) this.scrollToBottom();
           } else if (previewEl) {
-            previewEl.style.display = 'none';
+            previewEl.innerHTML = '<span style="color: var(--text-sub);">No plan content available.</span>';
           }
         })
         .catch(err => {
           const previewEl = document.getElementById(`plan-preview-${cardId}`);
-          if (previewEl) previewEl.style.display = 'none';
+          if (previewEl) {
+            previewEl.innerHTML = `<span style="color: #f43f5e;">Failed to load plan: ${escapeHtml(err.message)}</span>`;
+          }
         });
     } else {
+      // No file path — show the artifact content inline if available
       const previewEl = document.getElementById(`plan-preview-${cardId}`);
-      if (previewEl) previewEl.style.display = 'none';
+      if (previewEl) {
+        previewEl.innerHTML = '<span style="color: var(--text-sub);">Plan content will be provided by the agent above.</span>';
+      }
     }
 
+    // Wire up buttons
     const btnProceed = document.getElementById(`btn-proceed-${cardId}`);
     const btnEdit = document.getElementById(`btn-edit-${cardId}`);
     const btnReject = document.getElementById(`btn-reject-${cardId}`);
 
-    btnProceed.addEventListener('click', () => {
-      card.innerHTML = `<div class="approval-header success"><span class="approval-icon">✅</span><span class="approval-title">Plan Approved</span></div>`;
-      const input = document.getElementById('chat-input');
-      input.value = "Approved. Please proceed with the plan.";
-      this.sendMessage();
-    });
+    if (btnProceed) {
+      btnProceed.addEventListener('click', () => {
+        card.innerHTML = `<div class="approval-header success"><span class="approval-icon">✅</span><span class="approval-title">Plan Approved</span></div>`;
+        this.pendingApproval = false;
+        const input = document.getElementById('chat-input');
+        input.value = "Approved. Please proceed with the plan.";
+        this.sendMessage();
+      });
+    }
 
-    btnEdit.addEventListener('click', async () => {
-      if (!result.path) {
-        Toast.error('Cannot edit plan: file path not available.');
-        return;
-      }
-      btnEdit.disabled = true;
-      btnEdit.textContent = 'Loading...';
+    if (btnEdit) {
+      btnEdit.addEventListener('click', async () => {
+        if (!result.path) {
+          Toast.error('Cannot edit plan: file path not available.');
+          return;
+        }
+        btnEdit.disabled = true;
+        btnEdit.textContent = 'Loading...';
 
-      try {
-        const res = await fetch(`/api/file?path=${encodeURIComponent(result.path)}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error);
+        try {
+          const res = await fetch(`/api/file?path=${encodeURIComponent(result.path)}`);
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to load');
 
-        // Transform body into editor
-        const bodyEl = card.querySelector('.approval-body');
-        bodyEl.innerHTML = `
-          <p class="approval-hint">Edit the markdown plan below. Changes are saved automatically when you proceed.</p>
-          <textarea class="approval-editor" id="editor-${cardId}">${escapeHtml(data.content)}</textarea>
-          <div class="approval-actions">
-            <button class="btn-proceed" id="btn-save-${cardId}">Save & Proceed</button>
-            <button class="btn-reject" id="btn-cancel-${cardId}">Cancel</button>
-          </div>
-        `;
+          // Transform body into editor
+          const bodyEl = card.querySelector('.approval-body');
+          bodyEl.innerHTML = `
+            <p class="approval-hint">Edit the markdown plan below. Changes are saved automatically when you proceed.</p>
+            <textarea class="approval-editor" id="editor-${cardId}">${escapeHtml(data.content)}</textarea>
+            <div class="approval-actions">
+              <button class="btn-proceed" id="btn-save-${cardId}">💾 Save & Proceed</button>
+              <button class="btn-reject" id="btn-cancel-${cardId}">Cancel</button>
+            </div>
+          `;
 
-        document.getElementById(`btn-save-${cardId}`).addEventListener('click', async () => {
-          const newContent = document.getElementById(`editor-${cardId}`).value;
-          const saveBtn = document.getElementById(`btn-save-${cardId}`);
-          saveBtn.disabled = true;
-          saveBtn.textContent = 'Saving...';
+          document.getElementById(`btn-save-${cardId}`).addEventListener('click', async () => {
+            const newContent = document.getElementById(`editor-${cardId}`).value;
+            const saveBtn = document.getElementById(`btn-save-${cardId}`);
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
 
-          try {
-            const saveRes = await fetch('/api/file', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ path: result.path, content: newContent })
-            });
-            if (!saveRes.ok) throw new Error(await saveRes.text());
-            
-            card.innerHTML = `<div class="approval-header success"><span class="approval-icon">✅</span><span class="approval-title">Plan Edited & Approved</span></div>`;
-            const input = document.getElementById('chat-input');
-            input.value = "I have updated the plan. Approved. Please proceed with the plan.";
-            this.sendMessage();
-          } catch (err) {
-            Toast.error(`Save failed: ${err.message}`);
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'Save & Proceed';
-          }
-        });
+            try {
+              const saveRes = await fetch('/api/file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: result.path, content: newContent })
+              });
+              if (!saveRes.ok) throw new Error(await saveRes.text());
+              
+              card.innerHTML = `<div class="approval-header success"><span class="approval-icon">✅</span><span class="approval-title">Plan Edited & Approved</span></div>`;
+              this.pendingApproval = false;
+              const input = document.getElementById('chat-input');
+              input.value = "I have updated the plan. Approved. Please proceed with the updated plan.";
+              this.sendMessage();
+            } catch (err) {
+              Toast.error(`Save failed: ${err.message}`);
+              saveBtn.disabled = false;
+              saveBtn.textContent = '💾 Save & Proceed';
+            }
+          });
 
-        document.getElementById(`btn-cancel-${cardId}`).addEventListener('click', () => {
-          // Re-render the original card
-          this.renderApprovalCard(result);
-          card.remove(); // removes the current editor card
-        });
+          document.getElementById(`btn-cancel-${cardId}`).addEventListener('click', () => {
+            card.remove();
+            this.renderApprovalCard(result);
+          });
 
-      } catch (err) {
-        Toast.error(`Failed to load plan: ${err.message}`);
-        btnEdit.disabled = false;
-        btnEdit.textContent = 'Edit Plan';
-      }
-    });
+        } catch (err) {
+          Toast.error(`Failed to load plan: ${err.message}`);
+          btnEdit.disabled = false;
+          btnEdit.textContent = '✏️ Edit Plan';
+        }
+      });
+    }
 
-    btnReject.addEventListener('click', () => {
-      card.innerHTML = `<div class="approval-header error"><span class="approval-icon">❌</span><span class="approval-title">Plan Rejected</span></div>`;
-      const input = document.getElementById('chat-input');
-      input.value = "Plan rejected. Please modify your approach: ";
-      input.focus();
-    });
+    if (btnReject) {
+      btnReject.addEventListener('click', () => {
+        card.innerHTML = `<div class="approval-header error"><span class="approval-icon">❌</span><span class="approval-title">Plan Rejected</span></div>`;
+        this.pendingApproval = false;
+        const input = document.getElementById('chat-input');
+        input.value = "Plan rejected. Please modify your approach: ";
+        input.focus();
+      });
+    }
 
     if (this.autoScroll) this.scrollToBottom();
   }
@@ -994,16 +1183,15 @@ export class ChatView {
       const cursor = contentEl.querySelector('.streaming-cursor');
       if (cursor) cursor.remove();
 
-      // Finalize thinking block
-      const thinkingBlock = contentEl.querySelector('.thinking-block');
-      if (thinkingBlock) {
+      // Finalize all thinking blocks
+      contentEl.querySelectorAll('.thinking-block').forEach(thinkingBlock => {
         thinkingBlock.classList.remove('active');
 
         const pulse = thinkingBlock.querySelector('.thinking-pulse');
         if (pulse) pulse.remove();
 
         const labelText = thinkingBlock.querySelector('.thinking-label-text');
-        if (labelText) {
+        if (labelText && !labelText.textContent.includes('complete')) {
           const elapsed = this.thinkingStartTime
             ? Math.floor((Date.now() - this.thinkingStartTime) / 1000)
             : 0;
@@ -1020,10 +1208,10 @@ export class ChatView {
 
         const elapsedEl = thinkingBlock.querySelector('.thinking-elapsed');
         if (elapsedEl) elapsedEl.remove();
-      }
+      });
 
       // Show error if present
-      if (isError && data.error) {
+      if (isError && data && data.error) {
         const errorEl = document.createElement('div');
         errorEl.className = 'chat-error-inline';
         errorEl.innerHTML = `
@@ -1033,12 +1221,13 @@ export class ChatView {
         contentEl.appendChild(errorEl);
       }
 
-      // Bug 5 fix: add copy buttons to final rendered code blocks
-      const streamText = contentEl.querySelector('.stream-text');
-      if (streamText) {
+      // Add copy buttons to all final rendered code blocks
+      contentEl.querySelectorAll('.stream-text').forEach(streamText => {
         this.addCopyButtonsToCodeBlocks(streamText);
-      }
+      });
     }
+
+    this.activeBlock = null;
 
     // Update the stored message content
     if (this.messages[idx]) {

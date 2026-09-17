@@ -347,6 +347,8 @@ export class IntelView {
   }
 
   setupHandlers() {
+    window.__jarvisOpenCVE = (id) => this._openCVEDetail(id);
+
     // Auto-learn button
     const learnBtn = document.getElementById('auto-learn-btn');
     if (learnBtn) {
@@ -508,7 +510,7 @@ export class IntelView {
           for (const n of [...outbound, ...inbound].slice(0, 20)) {
             const dir = n.direction === 'outbound' ? '→' : '←';
             const isCveConn = n.id && /^CVE-/i.test(n.id);
-            html += `<div class="text-sm" style="padding:2px 0; ${isCveConn ? 'cursor:pointer;' : ''}" ${isCveConn ? `onclick="document.querySelector('.intel-view-instance')?.__openCVE?.('${this._escapeAttr(n.id)}')"` : ''}>`;
+            html += `<div class="text-sm" style="padding:2px 0; ${isCveConn ? 'cursor:pointer;' : ''}" ${isCveConn ? `onclick="window.__jarvisOpenCVE?.('${this._escapeAttr(n.id)}')"` : ''}>`;
             html += `<span class="text-muted">${dir}</span> <span class="mono text-cyan">${n.id}</span> <span class="text-muted">${n.name || ''}</span>`;
             if (isCveConn) html += ' <span class="cve-view-btn" style="font-size:0.65rem;">View</span>';
             html += `</div>`;
@@ -722,9 +724,10 @@ export class IntelView {
 
     // Close handlers
     const closePanel = () => overlay.remove();
-    overlay.querySelector('#cve-detail-close').addEventListener('click', closePanel);
     overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) closePanel();
+      if (e.target === overlay || e.target.closest('.cve-detail-close')) {
+        closePanel();
+      }
     });
     document.addEventListener('keydown', function escHandler(e) {
       if (e.key === 'Escape') {

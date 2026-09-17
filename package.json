@@ -83,5 +83,8 @@
     "socket.io": "^4.8.3",
     "whois-json": "^2.0.4",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
   }
 }
